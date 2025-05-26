@@ -32,7 +32,7 @@ g++ --version
 ## Installation
 In order to compile the BroCOLI source in this GitHub repository the following steps can be taken:
 ```
-git clone https://github.com/weiwei4396/BroCOLI.git
+git clone https://github.com/gyjames/BroCOLI.git
 ```
 ```
 cd BroCOLI
