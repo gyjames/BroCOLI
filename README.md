@@ -74,7 +74,7 @@ samtools sort -o sorted.sam unsorted.sam
 
 #### Step2 Transcript identification and quantification
 ```shell
-./BroCOLI_sc -s sam_files_path -a fasta.fa -g GTF.gtf -o output_path
+./BroCOLI_sc -s sam_files_path -f fasta.fa -g GTF.gtf -o output_path
 ```
 ## Output files
 1. After BroCOLI finishes processing the **bulk data**, a total of five files will be generated.
