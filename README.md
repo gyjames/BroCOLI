@@ -66,7 +66,7 @@ samtools sort -o sorted.sam unsorted.sam
 ```
 #### Step2 Transcript identification and quantification
 ```shell
-./BroCOLI_bulk -s sam_files_path -a fasta.fa -g GTF.gtf -o output_path
+./BroCOLI_bulk -s sam_files_path -f fasta.fa -g GTF.gtf -o output_path
 ```
 ### Single cell data
 #### Step1 Processing fastq files with Sicelore and wf-single-cell
