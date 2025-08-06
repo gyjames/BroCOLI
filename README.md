@@ -58,16 +58,24 @@ BroCOLI support all kinds of long RNA data:
 ## General usage
 ### Bulk data
 #### Step1 Mapping of the fastq files with minimap2
-One alignment tool that could be considered is [Minimap2](https://github.com/lh3/minimap2).
-
+One alignment tool that could be considered is [Minimap2](https://github.com/lh3/minimap2). This command can output a SAM file without secondary alignments:
+```shell
+minimap2 -ax splice -ub --secondary=no ref.fasta combined.fastq > in.sam
+```
+For noisy 1D Nanopore data the developer of Minimap2 suggests adding -k 14 and -w 4:
+```shell
+minimap2 -ax splice -ub -k14 -w 4 --secondary=no ref.fasta combined.fastq > in.sam
+```
 The input **SAM files** need to be **sorted** by samtools before running BroCOLI.
 ```shell
 samtools sort -o sorted.sam unsorted.sam
 ```
 #### Step2 Transcript identification and quantification
+If there is only **one sam file**, provide the absolute path to the SAM file using the -s parameter. If there are **multiple sam files**, set the -s parameter to the directory containing all the sorted SAM files.
 ```shell
 ./BroCOLI_bulk -s sam_files_path -f fasta.fa -g GTF.gtf -o output_path
 ```
+
 ### Single cell data
 #### Step1 Processing fastq files with Sicelore and wf-single-cell
 [Sicelore](https://github.com/ucagenomix/sicelore-2.1) and [wf-single-cell](https://github.com/epi2me-labs/wf-single-cell) can be used to process FASTQ files into SAM files.
