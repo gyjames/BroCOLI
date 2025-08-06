@@ -71,7 +71,7 @@ The input **SAM files** need to be **sorted** by samtools before running BroCOLI
 samtools sort -o sorted.sam unsorted.sam
 ```
 #### Step2 Transcript identification and quantification
-If there is only **one sam file**, provide the absolute path to the SAM file using the -s parameter. If there are **multiple sam files**, set the -s parameter to the directory containing all the sorted SAM files.
+If there is only **one sam file**, provide the absolute path to the SAM file using the **-s parameter**. If there are **multiple sam files**, set the **-s parameter** to the directory containing all the sorted SAM files.
 ```shell
 ./BroCOLI_bulk -s sam_files_path -f fasta.fa -g GTF.gtf -o output_path
 ```
