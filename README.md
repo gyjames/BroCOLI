@@ -12,7 +12,7 @@ BroCOLI (Bron-Kerbosch calibrator of Long-read Isoform) leverages efficient algo
         * [Step1 Mapping of the fastq files with minimap2](#Step1-Mapping-of-the-fastq-files-with-minimap2)
         * [Step2 Transcript identification and quantification](#Step2-Transcript-identification-and-quantification)
     + [Single cell data](#Single-cell-data)
-        * [Step1 Processing fastq files with Sicelore, wf-single-cell, Flexiplex](#Step1-Processing-fastq-files-with-Sicelore-wf-single-cell-Flexiplex)
+        * [Step1 Processing fastq files with Sicelore-2.1, wf-single-cell, Flexiplex](#Step1-Processing-fastq-files-with-Sicelore-wf-single-cell-Flexiplex)
         * [Step2 Transcript identification and quantification](#Step2-Transcript-identification-and-quantification)
 - [Output files](#Output-files)
 - [Test](#Test)
