@@ -14,8 +14,8 @@ BroCOLI (Bron-Kerbosch calibrator of Long-read Isoform) leverages efficient algo
     + [Single cell data](#Single-cell-data)
         * [Step1 Processing fastq files with Flexiplex, Sicelore, wf-single-cell](#Step1-Processing-fastq-files-with-Flexiplex-Sicelore-wf-single-cell)
         * [Step2 Transcript identification and quantification](#Step2-Transcript-identification-and-quantification)
+- [Example usage](#Example-usage)
 - [Output files](#Output-files)
-- [Test](#Test)
 - [All Arguments](#All-Arguments)
 - [Reference](#Reference)
 - [Contact](#Contact)
@@ -101,6 +101,11 @@ If there is only **one sam file**, provide the absolute path to the SAM file usi
 ```shell
 ./BroCOLI_sc -s sam_files_path -f fasta.fa -g GTF.gtf -o output_path
 ```
+
+## Example usage
+
+
+
 ## Output files
 1. After BroCOLI finishes processing the **bulk data**, a total of five files will be generated.
 - `counts_transcript.txt`: Quantitative results of all transcripts contained in all samples.
@@ -141,9 +146,6 @@ If there is only **one sam file**, provide the absolute path to the SAM file usi
 - `file_explain.txt`: It contains a mapping between samples and a numerical index, which starts at 0 and ends at the number of samples minus one.
     + Column 1 provides an index of BroCOLI's given sample
     + Column 2 corresponds to the absolute path of the SAM file for each sample.
-
-
-## Test
 
 
 
