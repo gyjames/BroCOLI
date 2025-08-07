@@ -12,7 +12,7 @@ BroCOLI (Bron-Kerbosch calibrator of Long-read Isoform) leverages efficient algo
         * [Step1 Mapping of the fastq files with minimap2](#Step1-Mapping-of-the-fastq-files-with-minimap2)
         * [Step2 Transcript identification and quantification](#Step2-Transcript-identification-and-quantification)
     + [Single cell data](#Single-cell-data)
-        * [Step1 Processing fastq files with Sicelore-2.1, wf-single-cell, Flexiplex](#Step1-Processing-fastq-files-with-Sicelore-wf-single-cell-Flexiplex)
+        * [Step1 Processing fastq files with Sicelore, wf-single-cell, Flexiplex](#Step1-Processing-fastq-files-with-Sicelore-wf-single-cell-Flexiplex)
         * [Step2 Transcript identification and quantification](#Step2-Transcript-identification-and-quantification)
 - [Output files](#Output-files)
 - [Test](#Test)
@@ -79,7 +79,7 @@ If there is only **one sam file**, provide the absolute path to the SAM file usi
 ```
 
 ### Single cell data
-#### Step1 Processing fastq files with Sicelore-2.1, wf-single-cell, Flexiplex
+#### Step1 Processing fastq files with Sicelore, wf-single-cell, Flexiplex
 [Sicelore-2.1](https://github.com/ucagenomix/sicelore-2.1), [wf-single-cell](https://github.com/epi2me-labs/wf-single-cell) and [Flexiplex](https://github.com/DavidsonGroup/flexiplex) can be used to process FASTQ files into SAM files.
 **1.Sicelore-2.1**
 
