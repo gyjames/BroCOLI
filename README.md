@@ -62,11 +62,11 @@ BroCOLI support all kinds of long RNA data:
 #### Step1 Mapping of the fastq files with minimap2
 One alignment tool that could be considered is [Minimap2](https://github.com/lh3/minimap2). This command can output a SAM file without secondary alignments:
 ```shell
-minimap2 -ax splice -ub --secondary=no ref.fasta combined.fastq > in.sam
+minimap2 -ax splice -ub --secondary=no -t 20 ref.fasta combined.fastq > in.sam
 ```
 For noisy 1D Nanopore data the developer of Minimap2 suggests adding -k 14 and -w 4:
 ```shell
-minimap2 -ax splice -ub -k14 -w 4 --secondary=no ref.fasta combined.fastq > in.sam
+minimap2 -ax splice -ub -k14 -w 4 --secondary=no -t 20 ref.fasta combined.fastq > in.sam
 ```
 The input **SAM files** need to be **sorted** by samtools before running BroCOLI.
 ```shell
