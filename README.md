@@ -93,8 +93,11 @@ If there is only **one sam file**, provide the absolute path to the SAM file usi
 
 
 **2.Sicelore-2.1**
+
 Before you run sicelore, you need to set up the required JAVA environment for it.
+
 Next, we use it. You can also go to its GitHub page to learn more about its detailed usage. 
+
 1.Scan Nanopore reads - assign cell barcodes.
 ```shell
 java -jar -Xmx80g $bcumifinder scanfastq -d <directory to start recursive search for fastq files> -o outPutDirectory --bcEditDistance 1 --cellRangerBCs cellRangerbarcodes.tsv
