@@ -70,7 +70,7 @@ minimap2 -ax splice -ub -k14 -w 4 --secondary=no -t 20 ref.fasta combined.fastq 
 ```
 The input **SAM files** need to be **sorted** by samtools before running BroCOLI.
 ```shell
-samtools sort -o sorted.sam unsorted.sam
+samtools sort -@ 20 -o sorted.sam unsorted.sam
 ```
 #### Step2 Transcript identification and quantification
 If there is only **one sam file**, provide the absolute path to the SAM file using the **-s parameter**. If there are **multiple sam files**, set the **-s parameter** to the directory containing all the sorted SAM files.
