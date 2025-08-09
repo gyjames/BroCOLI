@@ -88,8 +88,17 @@ If there is only **one sam file**, provide the absolute path to the SAM file usi
 [Flexiplex](https://github.com/DavidsonGroup/flexiplex), [Sicelore-2.1](https://github.com/ucagenomix/sicelore-2.1) and [wf-single-cell](https://github.com/epi2me-labs/wf-single-cell) can be used to process FASTQ files into SAM files.
 
 **1.Flexiplex**
+You can visit its GitHub page to directly download and use it, as well as learn more about its detailed usage."
 
-
+**First**, assign reads - short reads or single-cell long reads - to cellular barcodes
+```shell
+flexiplex -d 10x3v3 -p 20 -k cellRangerbarcodes.tsv reads.fastq > new_reads.fastq
+```
+**Second**, mapping.
+```shell
+minimap2 -ax splice -ub -k14 -w 4 --secondary=no -t 20 ref.fasta new_reads.fastq > new_reads.sam
+samtools sort -@ 20 -o new_reads_sorted.sam new_reads.sam
+```
 
 
 **2.Sicelore-2.1**
@@ -98,18 +107,18 @@ Before you run sicelore, you need to set up the required JAVA environment for it
 
 Next, we use it. You can also go to its GitHub page to learn more about its detailed usage. 
 
-First, Scan Nanopore reads - assign cell barcodes.
+**First**, scan Nanopore reads - assign cell barcodes.
 ```shell
 java -jar -Xmx80g <path>/NanoporeBC_UMI_finder-2.1.jar scanfastq -d <directory to start recursive search for fastq files> -o outPutDirectory --bcEditDistance 1 --cellRangerBCs cellRangerbarcodes.tsv
 ```
 The **--cellRangerBCs** parameter is optional. If Illumina data are available, a TSV file containing cell barcodes (e.g., from Cell Ranger) can be provided, which will improve the accuracy of barcode identification.
 
-Second, Mapping
+**Second**, mapping
 ```shell
 minimap2 -ax splice -uf --sam-hit-only -t 20 fastq_pass.fastq.gz | samtools view -bS -@ 20 - | samtools sort -m 2G -@ 20 -o passed.bam -&& samtools index passed.bam
 ```
 
-Third, UMI assignment
+**Third**, UMI assignment
 ```shell
 java -jar -Xmx80g <path>/NanoporeBC_UMI_finder.jar assignumis --inFileNanopore <Nanopore Bam> --outfile <cell bc and UMI assigned output bam file>
 ```
