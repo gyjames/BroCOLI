@@ -82,8 +82,8 @@ If there is only **one sam file**, provide the absolute path to the SAM file usi
 ```
 (i)                     (ii)                 (iii)    
 input_reads.sam     ─── input_directory  ─── input.txt(.tsv)
-                        ├── reads0.sam       │   ├── sample0.sam
-                        └── reads1.sam       │   ├── sample1.sam
+                        ├── sample0.sam      │   ├── sample0.sam
+                        └── sample1.sam      │   ├── sample1.sam
                                              │   ├── sample2.sam
 ```
 ```shell
@@ -142,8 +142,8 @@ The input data is similar to the bulk.
 ```
 (i)                     (ii)                 (iii)    
 input_reads.sam     ─── input_directory  ─── input.txt(.tsv)
-                        ├── reads0.sam       │   ├── sample0.sam
-                        └── reads1.sam       │   ├── sample1.sam
+                        ├── sample0.sam      │   ├── sample0.sam
+                        └── sample1.sam      │   ├── sample1.sam
                                              │   ├── sample2.sam
 ```
 
