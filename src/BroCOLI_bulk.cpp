@@ -49,11 +49,9 @@ Split_Result get_string_split(const std::string& s, char delimiter) {
     int number = 0;
     while (std::getline(iss, token, delimiter)) {
         number++;
-
         if (number == 1){
             read_result.read_name = token;
         } else if (1 < number && number <= 6) {
-
             read_result.tokens.push_back(token);
         } else if (number == 10) {
             read_result.read_length = token.size();
@@ -81,18 +79,14 @@ struct Read_intervals_and_Mlength{
 Read_intervals_and_Mlength get_read_intervals(std::string CIGARvalue, std::string initpos){
 
     Read_intervals_and_Mlength CIGAR_Interval_Length;
-
     int MatchLength = 0;
-    
     int position_begin = std::stoi(initpos);
     int position_end = 0;
-
     char currentChar = '0';
     int currentNumber = 0;
     bool inNumberMode = false;
     
     for (char ch : CIGARvalue) {
-
         if (std::isdigit(ch)) {
             inNumberMode = true;
             currentNumber = currentNumber * 10 + (ch - '0');
@@ -107,28 +101,21 @@ Read_intervals_and_Mlength get_read_intervals(std::string CIGARvalue, std::strin
                 CIGAR_Interval_Length.ReadIntervals.push_back(each_small_QJ);
 
             } else if (currentChar == 'D') {
-
                 position_end = position_begin + currentNumber;
-
             } else if (currentChar == 'I') {
                 MatchLength = MatchLength + currentNumber;
                 position_end = position_begin;
-
             } else if (currentChar == 'N') {
                 position_end = position_begin + currentNumber;
-
             } else if (currentChar == 'S') {
                 MatchLength = MatchLength + currentNumber;
                 position_end = position_begin;
-
             } else if (currentChar == 'H') {
                 MatchLength = MatchLength + currentNumber;
                 position_end = position_begin;
-
             } else if (currentChar == 'P') {
                 MatchLength = MatchLength + currentNumber;
                 position_end = position_begin + currentNumber;
-
             } else {
                 std::cout << currentChar << ' ' << "has not been considered yet!" << std::endl;
             }
@@ -143,19 +130,12 @@ Read_intervals_and_Mlength get_read_intervals(std::string CIGARvalue, std::strin
 
 
 struct Reads_Clusters {
-
     std::streampos lastPos;
-
     std::streampos newPos;
-
     std::map<std::string, std::vector<std::array<int,2>>> Mymap;
-
     std::map<std::string, int> Mylen;
-
     std::string SetRef_name;
-
     std::array<int,2> ClusterCoverage;
-
     int mapqless1 = 0;
     int mappingdiff = 0;
     int surveyNum = 0;    
@@ -165,18 +145,14 @@ struct Reads_Clusters {
 Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos CurrentPos, std::streampos EndPos) {
 
     Reads_Clusters NewCluster = {};
-
     std::map<std::string, std::vector<std::array<int,2>>> read_informs;
     std::map<std::string, int> read_len;
-
     std::string line;
     std::string now_gene;
     std::string last_chr;
 
     samfile.seekg(CurrentPos, std::ios::beg);
-
     std::streampos earlyPos = CurrentPos;
-
     int early_begin_pos = 0;
     int early_end_pos = 0;
 
@@ -198,10 +174,8 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
                 if (This_Line.read_length == CIGAR_interval.ReadMatchLength){
 
                     now_gene = This_Line.tokens[1];
-
                     int read_in_gene_begin_pos = std::stoi(This_Line.tokens[2]);
                     std::array<int,2> lastEle = CIGAR_interval.ReadIntervals.back();
-
                     int read_in_gene_end_pos = lastEle[1] - 1;
 
                     if (early_begin_pos == 0) {
@@ -211,7 +185,6 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
                     } else {
 
                         if (now_gene != last_chr){
-
                             NewCluster.lastPos = earlyPos;
                             NewCluster.newPos = CurrentPos;
                             NewCluster.Mymap = read_informs;
@@ -227,7 +200,6 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
 
                                 NewCluster.lastPos = earlyPos;
                                 NewCluster.newPos = CurrentPos;
-
                                 NewCluster.Mymap = read_informs;
                                 NewCluster.Mylen = read_len;
                                 NewCluster.ClusterCoverage[0] = early_begin_pos;
@@ -260,14 +232,12 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
 
         NewCluster.lastPos = earlyPos;
         NewCluster.newPos = CurrentPos;
-
         NewCluster.Mymap = read_informs;
         NewCluster.Mylen = read_len;
         NewCluster.ClusterCoverage[0] = early_begin_pos;
         NewCluster.ClusterCoverage[1] = early_end_pos;
         NewCluster.SetRef_name = last_chr;
     }
-
     return NewCluster;
 }
 
@@ -276,13 +246,9 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
 struct SpliceJs {
 
     std::unordered_map<std::string, std::vector<std::array<int,2>>> reads_SJs;
-
     std::unordered_map<std::string, std::vector<std::array<int,2>>> reads_SJs_left;
-
     std::unordered_map<std::string, std::vector<std::array<int,2>>> reads_SJs_right;
-
     std::unordered_map<std::string, std::array<int,2>> reads_begin_end;
-
     std::unordered_map<std::string, std::array<int,2>> reads_single_exon;
 
 }; 
@@ -291,7 +257,6 @@ struct SpliceJs {
 SpliceJs get_reads_allSJs(std::map<std::string, std::vector<std::array<int,2>>>& RCs, int SJD) {
 
     SpliceJs NewSJs = {};
-
     std::unordered_map<std::string, std::vector<std::array<int,2>>> AllRead_SJs;
     std::unordered_map<std::string, std::vector<std::array<int,2>>> AllRead_SJs_left;
     std::unordered_map<std::string, std::vector<std::array<int,2>>> AllRead_SJs_right;
@@ -302,11 +267,9 @@ SpliceJs get_reads_allSJs(std::map<std::string, std::vector<std::array<int,2>>>&
 
         std::string Rname = pair.first; 
         std::vector<std::array<int,2>> RMs = pair.second;
-
         std::vector<std::array<int,2>> ReadSJs;
         std::vector<std::array<int,2>> ReadSJs_left;
         std::vector<std::array<int,2>> ReadSJs_right;
-
         std::array<int,2> Read_SingleExon;
         std::array<int,2> Read_begin_end;
 
@@ -758,6 +721,7 @@ static struct option long_options[] = {
     {"single_exon_boundary", required_argument, 0, 'e'},
     {"graph_distance", required_argument, 0, 'd'},  
     {"thread", required_argument, 0, 't'}, 
+    {"output_min_read_count", required_argument, 0, 'r'}, 
     {"help", no_argument, 0, 'h'},
     {0, 0, 0, 0}  
 };
@@ -808,6 +772,7 @@ void print_usage(const char* program_name) {
     std::cout << "  -e, --single_exon_boundary  belongs to the isoform scope of a single exon. (optional, default:60)" << std::endl;
     std::cout << "  -d, --graph_distance        the distance threshold for constructing the isoform candidate distance graph. (optional, default:60)" << std::endl;
     std::cout << "  -t, --thread                thread number. (optional, default:8)" << std::endl;
+    std::cout << "  -r, --output_min_read_count the minimum number of transcripts in the output results. (optional, int, default:1)" << std::endl;
     std::cout << "  -h, --help                  show this help information." << std::endl;
 }
 
@@ -882,21 +847,39 @@ std::vector<std::string> check_catalog_exist(const std::string& output_path,
 
 
 std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, const std::string& output_path){
-
     std::vector<std::string> sam_file_vector;
-
     struct stat sam_stat;
- 
     stat(sam_file_path.c_str(), &sam_stat);
 
     if (S_ISREG(sam_stat.st_mode)) {
-
-        std::cout << "* Only one sam file is entered! * << " << sam_file_path << std::endl;
-
-        sam_file_vector.push_back(sam_file_path);
-
+        if (sam_file_path.rfind(".txt") == sam_file_path.length() - 4 || sam_file_path.rfind(".tsv") == sam_file_path.length()) {
+            std::cout << "* This is a txt/tsv file! * << " << sam_file_path << std::endl;
+            std::ifstream infile(sam_file_path);
+            if (!infile) {
+                std::cerr << "The file cannot be opened: " << sam_file_path << std::endl;
+                std::cerr << "* Not a valid file! *" << strerror(errno) << std::endl;
+            }            
+            std::string line;
+            while (std::getline(infile, line)) {
+                if (!line.empty()) {
+                    sam_file_vector.push_back(line);
+                }
+            }
+            infile.close();
+            if (sam_file_vector.size() == 0) {
+                std::cout << "^-^ There are " << 0 << " sam files in total. ^-^" << std::endl;
+                std::cerr << "* Not a valid file! *" << strerror(errno) << std::endl;
+            } else {
+                std::cout << "^-^ There are " << sam_file_vector.size() << " sam files in total. ^-^" << std::endl;
+            }
+        } else if (sam_file_path.rfind(".sam") == sam_file_path.length() - 4) {
+            std::cout << "* Only one sam file is entered! * << " << sam_file_path << std::endl;
+            sam_file_vector.push_back(sam_file_path);
+        } else {
+            std::cerr << "* Not a valid file! *" << strerror(errno) << std::endl;
+        }
+        
     } else if (S_ISDIR(sam_stat.st_mode)) {
-
         std::cout << "* A folder was entered! * << " << sam_file_path << std::endl;
         DIR* dir = opendir(sam_file_path.c_str());
         struct dirent* entry;
@@ -904,7 +887,6 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
             if (entry->d_name[0] != '.') { 
                 std::string fileName = entry->d_name;
                 std::cout << "Find file: " << fileName << std::endl;
-
                 if (fileName.rfind(".sam") == fileName.length() - 4) {
                     sam_file_vector.push_back(fileName);
                 }
@@ -1721,7 +1703,7 @@ GroupInformation knowGroupInformation(std::streampos& startpos, std::streampos& 
     GroupInformation groupinformation;
     std::ifstream FinalSamFile(sam_file_path);
     FinalSamFile.seekg(startpos);
-    // 记录当前, 也就是文件刚开始的位置;
+    
     std::streampos Current_Position = FinalSamFile.tellg();
     std::streampos Last_Position = Current_Position;
     std::string line;
@@ -1732,7 +1714,7 @@ GroupInformation knowGroupInformation(std::streampos& startpos, std::streampos& 
         Last_Position = Current_Position;
         Current_Position = FinalSamFile.tellg();
         if (Last_Position < endpos || Last_Position == FinalSamFile.eof()) {
-            // 拆解每一行;
+            
             Line_Split Line_result = MakeLineSplit(line, '\t');
             groupinformation.GroupIndex = Line_result.Group_index;
             groupinformation.chrName = Line_result.chr_name;
@@ -1762,7 +1744,7 @@ GroupInformation knowGroupInformation(std::streampos& startpos, std::streampos& 
         }
     }
     FinalSamFile.close();
-    // 整个cluster结束之后, 撰写结果;
+    
     for (const auto& Sj:Temp_Sjs) {
         if (Sj.second[0] > Sj_Support_Read_Number) {
             groupinformation.GroupSjs[Sj.first] = Sj.second[1];
@@ -1780,17 +1762,13 @@ struct GroupAnnotation
 };
 
 GroupAnnotation get_group_annotation(std::unordered_map<std::string, std::array<int,2>>& AnnoCoverage, std::unordered_map<std::string, std::vector<std::array<int,2>>>& AnnoisoSJ, std::array<int,2>& Group_Coverage){
-    //输出的数据结构就是unordered_map;
+    
     GroupAnnotation ThisGroupAnnotations;
     std::string extracted;
 
-    // int a = 0;
-    //对当前的注释遍历;
     for (const auto& EachAnno:AnnoCoverage) {
         if ((EachAnno.second[0] >= Group_Coverage[0]) && (EachAnno.second[1] <= Group_Coverage[1])){
-            //满足条件的存储一下;
             ThisGroupAnnotations.Group_Annotations[EachAnno.first] = AnnoisoSJ[EachAnno.first];
-            // a++;
             size_t pos = EachAnno.first.find("|");
             if (pos != std::string::npos) {
                 extracted = EachAnno.first.substr(0, pos);
@@ -1805,12 +1783,9 @@ GroupAnnotation get_group_annotation(std::unordered_map<std::string, std::array<
 std::unordered_map<std::string, std::array<int,2>> get_group_single_exon_annotation(
                                     std::unordered_map<std::string, std::array<int,2>>& AnnoSE, 
                                     std::array<int,2>& Group_Coverage) {
-    //输出的数据结构就是unordered_map;
     std::unordered_map<std::string, std::array<int,2>> ThisGroupSingleExonAnnotations;
-    //对当前的注释遍历;
     for (const auto& EachAnno:AnnoSE) {
         if ((EachAnno.second[0] >= Group_Coverage[0]) && (EachAnno.second[1] <= Group_Coverage[1])){
-            //满足条件的存储一下;
             ThisGroupSingleExonAnnotations[EachAnno.first] = EachAnno.second; 
         }
     }
@@ -1828,9 +1803,7 @@ std::unordered_map<std::string, std::vector<std::string>> get_group_single_exon_
     for (const auto& eachAnno:ThisGroupSingleExonAnnotations) {
         SingleReads[eachAnno.first] = {};
     }
-    // 开始对每个single exon 循环;
     for (const auto& EachSing:GroupSingleExonReads) {
-        // 每个注释;
         for (const auto& EachAnno:ThisGroupSingleExonAnnotations) {
             if ((EachSing.second[1]-EachAnno.second[1]<Edge) && (EachAnno.second[0]-EachSing.second[0]<Edge)) {
                 SingleReads[EachAnno.first].push_back(EachSing.first);
@@ -1850,27 +1823,20 @@ std::unordered_map<std::string, std::map<std::string, double>> write_single_exon
     std::ofstream& Updated_Files, std::ofstream& Trace, std::ofstream& isoformFilePath,
     std::unordered_map<std::string, std::string>& GTF_Transcript_Strand,
     std::string& chrname) {
-    // 最终的结果还是return出去吧;
-    // 最后一起写出来;
-    // 这个奇妙了, 我可以unmap<isoform:<file:counts>>
+
     std::unordered_map<std::string, std::map<std::string, double>> FileSingleExonNumber;
     std::unordered_map<std::string, std::map<std::string, double>> FileSingleGeneNumber;
     std::string first_part;
     std::string second_part;
-    // 以上初始化最终结果;
-    // 首先看看有几个文件哈;
+
     if (FileNo > 1) {
         if (Updated_Files.is_open()) {
-            // 多个sam文件;
             std::map<std::string, double> thisIsoform_FileCounts;
-            // 首先遍历已经根据注释分好的组;
             if (singleexonwithreads.size() > 0) {
                 for (const auto& eachAnno:singleexonwithreads) {
-                    // 可以写每个转录本的gtf;
                     if (eachAnno.second.size() > 0) {
                         size_t pos = eachAnno.first.find('|');
                         if (pos != std::string::npos) {
-                            // 根据 "|" 将字符串分割为两部分
                             first_part = eachAnno.first.substr(0, pos);
                             second_part = eachAnno.first.substr(pos + 1);
                         }
@@ -1879,39 +1845,34 @@ std::unordered_map<std::string, std::map<std::string, double>> write_single_exon
                             Updated_Files << chrname << '\t' << "annotated_isoform" << '\t' << "transcript" << '\t' << singleexongroupannotation[eachAnno.first][0] << '\t' << singleexongroupannotation[eachAnno.first][1] << '\t' << "." << '\t' << GTF_Transcript_Strand[eachAnno.first] << '\t' << '.' << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << second_part << "\";" << '\n';
                             Updated_Files << chrname << '\t' << "annotated_isoform" << '\t' << "exon" << '\t' << singleexongroupannotation[eachAnno.first][0] << '\t' << singleexongroupannotation[eachAnno.first][1] << '\t' << "." << '\t' << GTF_Transcript_Strand[eachAnno.first] << '\t' << '.' << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << second_part << "\"; exon_number \"" << 0 << "\";" << '\n';
                         }
-                        // 每个注释转录本开始时的归零;
                         thisIsoform_FileCounts.clear();
                         for (int i = 0; i < FileNo; i++) {
                             thisIsoform_FileCounts[std::to_string(i)] = 0;
                         }
-                        // 开始数数;
                         for (const auto& eachRead:eachAnno.second) {
                             std::string thisReadFile = groupreadfiles[eachRead];
                             thisIsoform_FileCounts[thisReadFile] = thisIsoform_FileCounts[thisReadFile] + 1;
-                            // 下面可以写每个read的Trace;
+
                             {
                                 std::unique_lock<std::mutex> lock(traceMutex);
                                 Trace << eachRead << '\t' << "single_exon" << '\t' << second_part << '\t' << first_part << '\t' << thisReadFile << '\n'; 
                             }
                         }
-                        // 最终数量结果写入;
                         FileSingleExonNumber[eachAnno.first] = thisIsoform_FileCounts;
-                        // 一个isoform完毕;
                     }
                 }
             }            
         }
     } else {
         if (Updated_Files.is_open()) {
-            // 一个sam文件;
-            // 首先遍历已经根据注释分好的组;
+
             if (singleexonwithreads.size() > 0) {
                 for (const auto& eachAnno:singleexonwithreads) {
-                    // 可以写每个转录本的gtf;
+
                     if (eachAnno.second.size() > 0) {
                         size_t pos = eachAnno.first.find('|');
                         if (pos != std::string::npos) {
-                            // 根据 "|" 将字符串分割为两部分
+
                             first_part = eachAnno.first.substr(0, pos);
                             second_part = eachAnno.first.substr(pos + 1);
                         }
@@ -1920,27 +1881,25 @@ std::unordered_map<std::string, std::map<std::string, double>> write_single_exon
                             Updated_Files << chrname << '\t' << "annotated_isoform" << '\t' << "transcript" << '\t' << singleexongroupannotation[eachAnno.first][0] << '\t' << singleexongroupannotation[eachAnno.first][1] << '\t' << "." << '\t' << GTF_Transcript_Strand[eachAnno.first] << '\t' << '.' << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << second_part << "\";" << '\n';
                             Updated_Files << chrname << '\t' << "annotated_isoform" << '\t' << "exon" << '\t' << singleexongroupannotation[eachAnno.first][0] << '\t' << singleexongroupannotation[eachAnno.first][1] << '\t' << "." << '\t' << GTF_Transcript_Strand[eachAnno.first] << '\t' << '.' << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << second_part << "\"; exon_number \"" << 0 << "\";" << '\n';
                         }
-                        // 开始数数;
+
                         FileSingleExonNumber[eachAnno.first]["0"] = eachAnno.second.size();
                         for (const auto& eachRead:eachAnno.second) {
-                            // 下面可以写每个read的Trace;
+
                             {
                                 std::unique_lock<std::mutex> lock(traceMutex);
                                 Trace << eachRead << '\t' << "single_exon" << '\t' << second_part << '\t' << first_part << '\t' << 0 << '\n'; 
                             }
                         }
-                        // 一个isoform完毕;
                     }
 
                 }
             }                        
         }
     }
-    // 输出单个exon的定量, 并计算出基因的数量;
+
     for (const auto& eachAnno:FileSingleExonNumber) {
         size_t pos = eachAnno.first.find('|');
         if (pos != std::string::npos) {
-            // 根据 "|" 将字符串分割为两部分
             first_part = eachAnno.first.substr(0, pos);
             second_part = eachAnno.first.substr(pos + 1);
         }
@@ -1953,16 +1912,14 @@ std::unordered_map<std::string, std::map<std::string, double>> write_single_exon
             }
             isoformFilePath << '\n';
         }
-        // 生成基因的变量;
-        auto it = FileSingleGeneNumber.find(first_part); //基因;
+
+        auto it = FileSingleGeneNumber.find(first_part); 
         if (it != FileSingleGeneNumber.end()) {
-            // 已经有了这个基因;
-            // 叠加就可以;
+
             for (const auto& eachFile:eachAnno.second) {
                 FileSingleGeneNumber[first_part][eachFile.first] = FileSingleGeneNumber[first_part][eachFile.first] + eachFile.second;
             }
         } else {
-            // 尚且没有这个基因;
             FileSingleGeneNumber[first_part] = {};
             for (const auto& eachFile:eachAnno.second) {
                 FileSingleGeneNumber[first_part][eachFile.first] = eachFile.second;
@@ -1976,7 +1933,7 @@ std::unordered_map<std::string, std::map<std::string, double>> write_single_exon
 
 
 void merge_high_sj(std::unordered_map<std::string, std::vector<std::array<int,2>>>& group_annotations, std::unordered_map<std::string, std::string>& transcript_strand, std::map<std::array<int,2>, int>& Grouphighsjs) {
-    // 注释的所有sj, 所在的链, 高置信区间;
+
     if (group_annotations.size() != 0) {
         for (const auto& isoform:group_annotations) {
             for (const auto& sj:isoform.second) {
@@ -1997,9 +1954,9 @@ void merge_high_sj(std::unordered_map<std::string, std::vector<std::array<int,2>
 
 
 std::unordered_map<std::size_t, std::vector<std::string>> classifyReadsVec(std::unordered_map<std::string, std::vector<std::array<int,2>>>& groupreadsjs) {
-    std::unordered_map<std::size_t, std::vector<std::string>> ClustersReads; //用于存储cluster;
+    std::unordered_map<std::size_t, std::vector<std::string>> ClustersReads; 
     std::map<std::vector<std::array<int,2>>, std::size_t> readsj2sizet;
-    //提取每个map中存储的每个reads的SJ的小区间;
+
     std::vector<std::array<int,2>> vec;
     std::string vecname;
     std::size_t cluster = 0;
@@ -2035,7 +1992,7 @@ std::unordered_map<std::size_t, std::array<int,2>> get_every_cluster_begin_end(s
             ExonbeginVec.push_back(AllReadBE[oneread][0]);
             ExonendVec.push_back(AllReadBE[oneread][1]);
         }
-        //分别对两个变量取值;
+
         auto min_it = std::min_element(ExonbeginVec.begin(), ExonbeginVec.end());
         auto max_it = std::max_element(ExonendVec.begin(), ExonendVec.end());
         CluserBeginEnd[Tuan.first][0] = *min_it;
@@ -2077,24 +2034,20 @@ ReferenceCluster get_FSM_and_others(std::unordered_map<std::size_t, std::vector<
     std::string first_part;
     std::string second_part; 
 
-    //遍历cluster;
     for (auto it = ClustersReads.begin(); it != ClustersReads.end(); ++it) {
-        //每一项的key表示这个cluster的SJ; value表示所有的reads的名称;
         each_read_SJs = AllSJs[(it->second)[0]];
         
-        //遍历注释;
-        statis_FSM.clear(); //判断FSM的, 判断多少个, 一般情况下就是1个;
+        statis_FSM.clear(); 
         statis_ISM.clear();
         for (const auto& pair : GroupAnno){
-            //pair.first表示基因名称如SIRV101, pair.second表示注释的所有SJ;
+            
             if (pair.second == each_read_SJs){
-                //这个判断条件表示 注释的SJ是否等于cluster的SJ;
+                
                 statis_FSM.push_back(pair.first);
             } else {
-                //不相等的情况;
-                //注释SJ的个数 必须大于 clusterSJ的个数;
+
                 if (pair.second.size() > each_read_SJs.size()){
-                    //接下来就看看是不是ISM; 不需要知道是谁的ISM, 后续还会追究, 所以通过数字就可以了解;
+                    
                     ISM_flag.clear();
                     
                     for (const auto& element : each_read_SJs) {
@@ -2108,16 +2061,15 @@ ReferenceCluster get_FSM_and_others(std::unordered_map<std::size_t, std::vector<
                     }
                     if ((ISM_flag[ISM_flag.size()-1] != 10000) && (ISM_flag[0] != 10000) && (ISM_flag[ISM_flag.size()-1] - ISM_flag[0] == ISM_flag.size() - 1)) {statis_ISM.push_back(pair.first);}
                 }
-                //这里说明是这个cluster, 比当前的注释转录本的SJ个数要多;
+                
             }
         }
-        //遍历一遍注释后;继续看满足条件的个数;
-        //先看FSM;
-        if (statis_FSM.size() == 1){
+
+        if (statis_FSM.size() == 1) {
             FSM_name = statis_FSM[0];
             FSMISMO.FSM[FSM_name].first = each_read_SJs;
             FSMISMO.FSM[FSM_name].second.insert(FSMISMO.FSM[FSM_name].second.end(), ClustersReads[it->first].begin(), ClustersReads[it->first].end());
-            //将这个cluster中的每一条reads都输出到追踪文件;
+            
             size_t pos = FSM_name.find('|');
             if (pos != std::string::npos){
                 first_part = FSM_name.substr(0, pos);
@@ -2128,28 +2080,26 @@ ReferenceCluster get_FSM_and_others(std::unordered_map<std::size_t, std::vector<
                     std::unique_lock<std::mutex> lock(traceMutex);
                     Trace << EachRead << '\t' << "FSM" << '\t' << second_part << '\t' << first_part << '\t' << GroupReadFile[EachRead] << '\n'; 
                 }
-            }                        
+            }
 
         } else if (statis_FSM.size() > 1){
             
-            //这种情况就需要对每条reads分别看开头和结尾;
-            //初始化将数量标记为0;
             for (const auto& refx : statis_FSM){
                 FSM_name = refx;
                 FSMISMO.FSM[FSM_name].first = each_read_SJs;
                 FSMISMO.FSM[FSM_name].second = {};
             }
-            for (const auto& readx : ClustersReads[it->first]) { //readx是每条read的名称;
+            for (const auto& readx : ClustersReads[it->first]) { 
                 minFSM.clear();
                 for (const auto& refx : statis_FSM){
                     minFSM.push_back(std::abs(AllReadBE[readx][0] - GroupAnnoBE[refx][0]) + std::abs(AllReadBE[readx][1] - GroupAnnoBE[refx][1]));
                 }
-                //每条reads的所有候选FSM计算完毕;
+
                 minmin = std::min_element(minFSM.begin(), minFSM.end()) - minFSM.begin();
-                //因此这条reads的归于索引为minmin的isoform;
+
                 FSM_name = statis_FSM[minmin];
                 FSMISMO.FSM[FSM_name].second.push_back(readx); //有个小bug, 如果都一样的话, 只会给前一个;
-                //将这个cluster中的每一条reads都输出到追踪文件;
+
                 size_t pos = FSM_name.find('|');
                 if (pos != std::string::npos){
                     first_part = FSM_name.substr(0, pos);
@@ -2161,15 +2111,15 @@ ReferenceCluster get_FSM_and_others(std::unordered_map<std::size_t, std::vector<
                 }                
             } //分配结束;
 
-        } else{ //只有FSM没有的情况下, 才继续看ISM;
-            //然后看ISM;
+        } else { //只有FSM没有的情况下, 才继续看ISM;
+
             if (statis_ISM.size() == 0){
-                //这种的情况是其他类;
+
                 FSMISMO.Others[it->first] = ClustersReads[it->first];
             } else{
                 //这种的情况是ISM类, 不用管是哪种ISM; //如果后续改识别ISM类型的时候, 更改这里; ★★★★★★★
                 FSMISMO.ISM[it->first] = ClustersReads[it->first];
-                //这些ISM是由哪些FSM得来的, 有的FSM可能已经有number, 有的没有number的就记为0;
+
                 for (int i = 0; i < statis_ISM.size(); i++){
                     auto isIn = FSMISMO.FSM.find(statis_ISM[i]);
                     if (isIn == FSMISMO.FSM.end()){
@@ -2177,6 +2127,7 @@ ReferenceCluster get_FSM_and_others(std::unordered_map<std::size_t, std::vector<
                         FSMISMO.FSM[statis_ISM[i]].second = {};
                     }
                 }
+                
             }
         }
     }
@@ -2220,11 +2171,11 @@ HighLowClusters get_HighLow_clusters(std::unordered_map<std::size_t, std::vector
     bool StrandFlag = 0;
 
     for (auto it = Others_Clusters.begin(); it != Others_Clusters.end(); ++it) {
-        hashname = it->first; //Cluster对应的哈希值;
-        each_cluster = it->second; //Cluster对应的所有read名称的vector;
-        //首先判断cluster中reads的数量, 一个的很多;
+        hashname = it->first; 
+        each_cluster = it->second; 
+
         if (each_cluster.size() > 1){
-            // 多于1个的继续考虑;
+ 
             SumCount = 0;
             StrandCount = 0;
             SjNumber = readsigns[each_cluster[0]].size();
@@ -2256,10 +2207,9 @@ HighLowClusters get_HighLow_clusters(std::unordered_map<std::size_t, std::vector
                 }
             }
 
-            // 看看满足条件;
             if (SumCount == SjNumber) {
                 if (StrandFlag) {
-                    // 链不一致;
+
                     HighLowC.LowConClusters[hashname] = Others_Clusters[hashname];               
                 } else {
                     if (StrandCount == 1) {
@@ -2283,7 +2233,7 @@ HighLowClusters get_HighLow_clusters(std::unordered_map<std::size_t, std::vector
     // std::cout << onlyHighC.size() << " High个  ***  " << HighLowC.LowConClusters.size() << " Low个" << std::endl;
     onlyHighC_copy = onlyHighC;
     onlyHighStrand_copy = onlyHighStrand;
-    //还有一步, 将短的cluster去掉, 留下长的cluster;
+
     std::vector<std::array<int,2>> SJs1;
     std::vector<std::array<int,2>> SJs2;
     for (const auto& clus1: onlyHighC) {
@@ -2292,12 +2242,11 @@ HighLowClusters get_HighLow_clusters(std::unordered_map<std::size_t, std::vector
             SJs2 = AllSJs[clus2.second[0]];
             if (SJs2.size()>SJs1.size()) {
                 if (std::includes(SJs2.begin(), SJs2.end(), SJs1.begin(), SJs1.end())){                  
-                    //这种情况是clus1是clus2的子集;
-                    //判断成功连续就可以了;
+
                     pos1 = std::find(SJs2.begin(), SJs2.end(), SJs1[0]) - SJs2.begin();
                     pos2 = std::find(SJs2.begin(), SJs2.end(), SJs1[SJs1.size()-1]) - SJs2.begin();
                     if (pos2-pos1 == SJs1.size()-1){
-                        //这种情况说明1是2的子集;
+
                         HighLowC.LowConClusters[clus1.first] = clus1.second;
                         onlyHighC_copy.erase(clus1.first);
                         onlyHighStrand_copy.erase(clus1.first);
@@ -2375,40 +2324,37 @@ void get_filtered_FSM(std::map<std::size_t, std::vector<std::string>>& LowReads,
     //需要保存的变量;
     std::unordered_map<std::string, std::unordered_map<std::size_t, std::vector<std::string>>> RecycleAnnoName_value;
     std::set<std::size_t> DeleteItem;
-    //每次计算出相差的距离;
+    
     int RecycleLength = 0;
     int count = 0;
     std::string minAnnoName;
     int dis = 10000;
-    //临时变量, 保存每个cluster潜在的多个FSM;
+    
     std::unordered_map<std::string, int> potential_FSM;
     std::vector<std::array<int,2>> LowReadSJVec;
 
     std::string first_part;
     std::string second_part;
 
-    //需要循环每一个过滤的cluster, 每个cluster可能有几个潜在的FSM;
     for (const auto& each_Readcluster:LowReads){
         LowReadSJVec = AllSJs[each_Readcluster.second[0]];
-        // std::cout << each_anno.first << std::endl;
-        //循环所有的过滤出去的reads_cluster;
+
         potential_FSM.clear();
         for (const auto& each_anno:GroupAnno){
-            //如果注释与reads的cluster相同长度才可以计算, 为了减少计算的数量;
+            
             if (each_anno.second.size() == LowReadSJVec.size()){
                 RecycleLength = IntervalMerge(each_anno.second, LowReadSJVec) - IntervalIntersection(each_anno.second, LowReadSJVec);
                 if (RecycleLength < 15*LowReadSJVec.size()){
-                    //如果距离符合要求;
+                    
                     potential_FSM[each_anno.first] = RecycleLength;
                 }
             }
         }
-        //对于每个cluster查看有几个潜在的FSM;
-        //如果只有1个是最好办的情况;
+
         if (potential_FSM.size() == 1){
-            //首先将这个cluster标记;
+
             DeleteItem.insert(each_Readcluster.first);
-            //输出到追踪文件;
+
             size_t pos = (*(potential_FSM.begin())).first.find('|');
             if (pos != std::string::npos){
                 first_part = (*(potential_FSM.begin())).first.substr(0, pos);
@@ -2421,20 +2367,19 @@ void get_filtered_FSM(std::map<std::size_t, std::vector<std::string>>& LowReads,
                 }
             }                        
 
-            //查看这个潜在的FSM是不是已经出现过;
             if (RecycleAnnoName_value.find((*potential_FSM.begin()).first) != RecycleAnnoName_value.end()){
-                //如果已经出现过, 只需要在原来的基础上加上数值;
+                
                 RecycleAnnoName_value[(*potential_FSM.begin()).first][each_Readcluster.first] = each_Readcluster.second;
             } else{
-                //如果没有出现过;
+                
                 RecycleAnnoName_value[(*potential_FSM.begin()).first] = {};
                 RecycleAnnoName_value[(*potential_FSM.begin()).first][each_Readcluster.first] = each_Readcluster.second;
             }
-        //如果有多个, 则取距离最小的
+        
         } else if (potential_FSM.size() > 1) {
-            //首先将这个cluster标记;
+            
             DeleteItem.insert(each_Readcluster.first);
-            //找到距离最小的;
+            
             dis = 100000;
             for (const auto& Po:potential_FSM){
                 if (Po.second < dis){
@@ -2442,7 +2387,7 @@ void get_filtered_FSM(std::map<std::size_t, std::vector<std::string>>& LowReads,
                     minAnnoName = Po.first;
                 }
             }
-            //输出追踪文件;
+            
             size_t pos = minAnnoName.find('|');
             if (pos != std::string::npos){
                 first_part = minAnnoName.substr(0, pos);
@@ -2455,26 +2400,24 @@ void get_filtered_FSM(std::map<std::size_t, std::vector<std::string>>& LowReads,
                 }
             }   
 
-            //查看这个潜在的FSM——minAnnoName是不是已经出现过?
             if (RecycleAnnoName_value.find(minAnnoName) != RecycleAnnoName_value.end()){
-                //如果已经出现过, 只需在原来的基础上加上数值;
+                
                 RecycleAnnoName_value[minAnnoName][each_Readcluster.first] = each_Readcluster.second;
             } else{
-                //如果没有出现过;
+                
                 RecycleAnnoName_value[minAnnoName] = {};
                 RecycleAnnoName_value[minAnnoName][each_Readcluster.first] = each_Readcluster.second;
             }
         }
-        //整个cluster完毕;
+        
     }   
-    // int new_count = 0;
+
     std::vector<std::string> newName;
 
     for (const auto& newFSM:RecycleAnnoName_value){
-        //如果之前的FSM中已经存在;
-        // new_count = 0;
+
         newName.clear();
-        for (const auto& allCluster:newFSM.second){ //每个类;
+        for (const auto& allCluster:newFSM.second){ 
             // new_count = new_count + allCluster.second.size();
             newName.insert(newName.end(), allCluster.second.begin(), allCluster.second.end());
         }
@@ -2494,7 +2437,7 @@ void get_filtered_FSM(std::map<std::size_t, std::vector<std::string>>& LowReads,
         auto it = LowReads.find(eachSJ);
         if (it != LowReads.end()){
             LowReads.erase(it);
-        } else { //后期可以去掉;
+        } else { 
             std::cout << "*** That doesn't make sense. There should be a Bug! ***" << std::endl;
         }
     }
@@ -2527,8 +2470,7 @@ SpliceChainClass generate_splice_chain_class(const int& dataMode,
     ReferenceCluster FsmIsmOthers;
     HighLowClusters Others2HighLow;
     std::unordered_map<std::size_t, std::vector<std::string>> groupCluster = classifyReadsVec(groupreadsjs);
-    // FSM ISM 根本没必要校正区间; 真正需要校正的是Low的;
-    // 后面有一步回收, 能不能达到相同效果? 
+
     SCC.ClusterCoverage = get_every_cluster_begin_end(groupCluster, groupreadcoverage);
     FsmIsmOthers = get_FSM_and_others(groupCluster, groupannotations, AnnoCoverage, groupreadcoverage, groupreadsjs, groupreadfiles, traceFilePath); //readTraceMutex;
     Others2HighLow = get_HighLow_clusters(FsmIsmOthers.Others, groupreadsjs, groupreadsigns, Sj_Support_Number);
@@ -2584,12 +2526,11 @@ int findNonOverlappingIntervals(const std::vector<std::array<int, 2>>& intervals
 struct DistanceInform
 {
     std::unordered_map<int, std::set<int>> NodeDistanceSet;
-    //序号名称和节点名称的字典;
     std::unordered_map<int, std::vector<std::array<int,2>>> Index2Unknown;
     std::unordered_map<int, std::string> Index2Anno;
     std::unordered_map<int, int> Index2Count;
     std::unordered_map<int, std::size_t> Index2hashname;
-    std::unordered_map<int, std::string> Index2novelname; //后面才用到;
+    std::unordered_map<int, std::string> Index2novelname;
 };
 
 
@@ -2597,9 +2538,9 @@ DistanceInform get_distance_matrix(std::unordered_map<std::string, std::vector<s
                                    std::map<std::size_t, std::vector<std::string>>& HighClusters, 
                                    std::unordered_map<std::string, std::vector<std::array<int,2>>>& groupreadsjs, int DistanceG, 
                                    std::unordered_map<std::string, std::pair<std::vector<std::array<int,2>>, std::vector<std::string>>>& AllFSM){
-    //输出结果的二维矩阵;
+
     DistanceInform Graph_Init_inform;
-    //初始化
+
     for (int i = 0; i < groupannotations.size()+HighClusters.size(); ++i){
         Graph_Init_inform.NodeDistanceSet[i] = {};
     }
@@ -2610,28 +2551,29 @@ DistanceInform get_distance_matrix(std::unordered_map<std::string, std::vector<s
     int NameNumber = 0;
     int HighNumber = groupannotations.size();
 
-    //首先计算的一部分是注释的isoform与候选的isoform之间的距离; 相当于整个矩阵的part2;
-    //如果注释这部分没有;
+    int Merge_L;
+    int Inter_L;
+    int Nonoverlap_L;
+
     if (groupannotations.size() != 0){
         for (const auto& EachAnno : groupannotations){
             Graph_Init_inform.Index2Anno[NameNumber] = EachAnno.first;
-            //提取这个注释是否在FSM中;
             auto it = AllFSM.find(EachAnno.first);
-            //检查是否找到,如果在FSM中, 则将数量提取, 否则, 数量记为0;
             if (it != AllFSM.end()) {
                 Graph_Init_inform.Index2Count[NameNumber] = (it->second).second.size();
             } else{
                 Graph_Init_inform.Index2Count[NameNumber] = 0;
             }
-            //清空每一行的距离重新赋值;
+
             if (HighClusters.size() != 0){
-                //初始化;
                 HighNumber = groupannotations.size();
                 for (const auto& eachHC : HighClusters){
-                    //从这里开始计算两两之间的距离大小;
                     SJVec1 = groupreadsjs[eachHC.second[0]];
-                    LineElement = IntervalMerge(EachAnno.second, SJVec1) - IntervalIntersection(EachAnno.second, SJVec1) - findNonOverlappingIntervals(EachAnno.second, SJVec1);
-                    // std::cout << LineElement << std::endl;
+                    Merge_L = IntervalMerge(EachAnno.second, SJVec1);
+                    Inter_L = IntervalIntersection(EachAnno.second, SJVec1);
+                    Nonoverlap_L = findNonOverlappingIntervals(EachAnno.second, SJVec1);
+                    LineElement = Merge_L - Inter_L - Nonoverlap_L;
+                    // LineElement = IntervalMerge(EachAnno.second, SJVec1) - IntervalIntersection(EachAnno.second, SJVec1);
                     if ((LineElement < DistanceG+1) && (LineElement > 0)){
                         Graph_Init_inform.NodeDistanceSet[NameNumber].insert(HighNumber);
                         Graph_Init_inform.NodeDistanceSet[HighNumber].insert(NameNumber);
@@ -2644,7 +2586,7 @@ DistanceInform get_distance_matrix(std::unordered_map<std::string, std::vector<s
     }
 
     if (HighClusters.size() != 0) {
-        //接下来计算的候选的isoform之间的距离;通过part2得到part24;
+
         for (const auto& HC1 : HighClusters){
             SJVec1 = groupreadsjs[HC1.second[0]];
             Graph_Init_inform.Index2Unknown[NameNumber] = SJVec1;
@@ -2653,7 +2595,10 @@ DistanceInform get_distance_matrix(std::unordered_map<std::string, std::vector<s
             HighNumber = groupannotations.size();
             for (const auto& HC2 : HighClusters){
                 SJVec2 = groupreadsjs[HC2.second[0]];
-                LineElement = IntervalMerge(SJVec1, SJVec2) - IntervalIntersection(SJVec1, SJVec2) - findNonOverlappingIntervals(SJVec1, SJVec2);
+                Merge_L = IntervalMerge(SJVec1, SJVec2);
+                Inter_L = IntervalIntersection(SJVec1, SJVec2);
+                Nonoverlap_L = findNonOverlappingIntervals(SJVec1, SJVec2);
+                LineElement = Merge_L - Inter_L - Nonoverlap_L;
                 if ((LineElement < DistanceG+1) && (LineElement > 0)){
                     Graph_Init_inform.NodeDistanceSet[NameNumber].insert(HighNumber);
                 }
@@ -2703,7 +2648,7 @@ std::vector<std::vector<int>> Find_Maximal_Cliques(std::unordered_map<int, std::
         Q.push_back(-1);
         //首先找到邻居节点最多的节点;        
         max_node = find_max_neighborhood_node(subg, adj);
-        //使用std::set_difference算法计算差集;
+
         std::set_difference(cand.begin(), cand.end(),
                             adj[max_node].begin(), adj[max_node].end(),
                             std::inserter(ext_u, ext_u.begin()));
@@ -2801,20 +2746,15 @@ DetectionResults Transcript_Detection(std::vector<std::vector<int>>& CqVec,
                                       std::unordered_map<int, std::string>& Number2Anno, 
                                       std::unordered_map<int, std::vector<std::array<int,2>>>& Number2Unknown, 
                                       std::unordered_map<int, int>& Number2Count) {
-    //整个染色体中已知正确的节点;
-    //定义结果, 识别为正确的和识别为错误的节点;
-    //初始化结构体;
+
     DetectionResults Node_Results = {};
 
-    //函数用到的中间变量;
     std::set<int> subgraph_known_true_nodes;
     std::set<int> subgraph_remain_nodes;
     int standard_read_number = std::numeric_limits<int>::max();
     int known_true_number = 0;
     int max_node_value = 0;
 
-
-    //遍历一遍已知注释的点, 将其存入NodesKnownTrue的Set中;
     for (const auto& Anno : Number2Anno){
         Node_Results.NodesKnownTrue.insert(Anno.first);
     }
@@ -2824,7 +2764,7 @@ DetectionResults Transcript_Detection(std::vector<std::vector<int>>& CqVec,
         if (CqVec.size() > 1) {
             std::sort(CqVec.begin(), CqVec.end(), compareBySize);
         }
-        //遍历每个团;
+
         for (const auto& eachClique : CqVec){
             standard_read_number = std::numeric_limits<int>::max();
 
@@ -2841,7 +2781,7 @@ DetectionResults Transcript_Detection(std::vector<std::vector<int>>& CqVec,
                 if (subgraph_known_true_nodes.size() == 1){
                     standard_read_number = Number2Count[(*subgraph_known_true_nodes.begin())];
                 } else {
-                    //如果有多个正确的节点;
+
                     for(const auto& each_True_node : subgraph_known_true_nodes){
                         if (Number2Count[each_True_node] < standard_read_number) {
                             standard_read_number = Number2Count[each_True_node];
@@ -2850,13 +2790,13 @@ DetectionResults Transcript_Detection(std::vector<std::vector<int>>& CqVec,
                 }
 
                 if (subgraph_remain_nodes.size() != 0){ 
-                    //有已知相邻的节点, 即使number为0也可以加入识别的;
+
                     for (const auto& eachknownnode:subgraph_known_true_nodes){
                         Node_Results.TrueNodeSet.insert(subgraph_known_true_nodes.begin(), subgraph_known_true_nodes.end());
                     }
-                    //利用已知节点, 看一下其他的节点, 不然直接剔除;
+
                     for (const auto& each_remain_node : subgraph_remain_nodes){
-                        //查看是否满足条件;
+
                         if (standard_read_number == 0){
                             Node_Results.FalseNodeSet.insert(each_remain_node);
                         } else {
@@ -2879,7 +2819,7 @@ DetectionResults Transcript_Detection(std::vector<std::vector<int>>& CqVec,
             } else {
 
                 if (subgraph_remain_nodes.size() == 1){
-                    //只有一个节点, 暂时认为对;
+
                     if (Number2Count[*subgraph_remain_nodes.begin()] > 0) {
                         Node_Results.TrueNodeSet.insert(*subgraph_remain_nodes.begin());
                     }
@@ -2902,7 +2842,6 @@ DetectionResults Transcript_Detection(std::vector<std::vector<int>>& CqVec,
                     }   
                 }
             }
-            //每个子图一次循环;
         }
 
         for (const auto& eachFalse:Node_Results.FalseNodeSet){
@@ -2927,13 +2866,13 @@ Solvent get_Solvent_FsmIsmHigh(SpliceChainClass& FsmIsmHigh, int& FileNumber, Gr
     std::unordered_map<std::string, int> thisTranscript_File2Count; // FSM的临时变量;
     std::map<std::string, std::vector<std::string>> thisTranscript_File2Count_ISM; // ISM和High的临时变量;
 
-    // 拆分FSM;
+
     if (FsmIsmHigh.FSM.size() > 0) {
-        // 首先初始化;
+
         for (int i = 0; i < FileNumber; i++) {
             FileSpliceChains.File_FSM[std::to_string(i)] = {};
         }        
-        // 对每个FSM循环;
+
         for (const auto& eachCluster:FsmIsmHigh.FSM) {
             // std::cout << "总 " << eachCluster.first << ": " << eachCluster.second.second.size() << std::endl;
             thisTranscript_File2Count.clear();
@@ -2941,14 +2880,13 @@ Solvent get_Solvent_FsmIsmHigh(SpliceChainClass& FsmIsmHigh, int& FileNumber, Gr
                 thisTranscript_File2Count[std::to_string(i)] = 0;
             }
             std::string AnnoName = eachCluster.first;
-            // 对这个transcript所属的每条reads进行循环;
+ 
             for (const auto& eachRead:eachCluster.second.second) {
-                // 这条read所在的文件;
+
                 std::string read_file = groupinformations.GroupReadFiles[eachRead];
                 thisTranscript_File2Count[read_file] = thisTranscript_File2Count[read_file] + 1;
             }
-            // 所有的reads循环结束;
-            // 结果填写到FSM中;
+
             for (const auto& eachFile:thisTranscript_File2Count) {
                 // std::cout << "File: " << eachFile.first << " " << eachFile.second << std::endl;
                 if (eachFile.second > 0) {
@@ -2958,13 +2896,10 @@ Solvent get_Solvent_FsmIsmHigh(SpliceChainClass& FsmIsmHigh, int& FileNumber, Gr
         }
     } // 结束;
 
-    // 拆分ISM;
     if (FsmIsmHigh.ISM.size() > 0) {
-        // 首先初始化;
         for (int i = 0; i < FileNumber; i++) {
             FileSpliceChains.File_ISM[std::to_string(i)] = {};
         }
-        // 对每个ISM循环;
         for (const auto& eachCluster:FsmIsmHigh.ISM) {
             thisTranscript_File2Count_ISM.clear();
             for (int i = 0; i < FileNumber; i++) {
@@ -3137,26 +3072,26 @@ OutputInformation Write_Detection_Transcript2gtf(std::ofstream& Updated_Files, s
                 BE = groupreadcoverage[nameya];
 
                 TempGene.clear();
-                // gene set里面已经有很多isoform; 当前isoform的sj就是itssj;
+                
                 if (groupallgene.size() != 0) {
                     TempGeneName = get_co_sj_gene(itssj, groupallgene, gtf_gene2tx, groupannotations);
 
                     if (TempGeneName.size() != 0) {
                         first_part = TempGeneName;
                     } else {
-                        // 这个时候就是多个exon的注释和单个exon的注释, 从里面选一个;
+                        
                         for (const auto& every_gene:groupallgene) {
                             if (Annogenecovergae[every_gene][0] <= BE[1] && BE[0] <= Annogenecovergae[every_gene][1]) {
                                 TempGene.push_back(every_gene);
                             }
                         }
-                        //novel isoform没有候选的基因;
+                        
                         if (TempGene.size() == 0) {
                             first_part = "NA";
-                            // novel isoform只有1个候选的基因;
+                            
                         } else if (TempGene.size() == 1) {
                             first_part = TempGene[0];
-                            //novel isoform有2个以上候选的基因;
+                            
                         } else {
                             TempDist.clear();
                             for (const auto& each_gene:TempGene){
@@ -3170,9 +3105,7 @@ OutputInformation Write_Detection_Transcript2gtf(std::ofstream& Updated_Files, s
                     }
 
                 } else {
-                    // 这个时候只需要用单个exon的注释就可以, 从里面选一个;
-                    // 如果也没有, 那么就是NA;
-                    //单个exon的情况;
+
                     TempDist.clear();
                     for (const auto& every_gene_tx:SingleExonAnno) {
                         if (every_gene_tx.second[0] <= BE[1] && BE[0] <= every_gene_tx.second[1]) {
@@ -3209,7 +3142,7 @@ OutputInformation Write_Detection_Transcript2gtf(std::ofstream& Updated_Files, s
                         }
                     }
                 }
-                //输出追踪文件;
+                
                 if (Trace.is_open()){
                     for (const auto& EachRead:HighClusters[nameya]){
                         std::unique_lock<std::mutex> lock(traceMutex);
@@ -3311,26 +3244,26 @@ OutputInformation Write_Detection_Transcript2gtf_MultiFiles(std::ofstream& Updat
                 }
                 
                 TempGene.clear();
-                // gene set里面已经有很多isoform; 当前isoform的sj就是itssj;
+                
                 if (groupallgene.size() != 0) {
                     TempGeneName = get_co_sj_gene(itssj, groupallgene, gtf_gene2tx, groupannotations);
 
                     if (TempGeneName.size() != 0) {
                         first_part = TempGeneName;
                     } else {
-                        // 这个时候就是多个exon的注释和单个exon的注释, 从里面选一个;
+
                         for (const auto& every_gene:groupallgene) {
                             if (Annogenecovergae[every_gene][0] <= BE[1] && BE[0] <= Annogenecovergae[every_gene][1]) {
                                 TempGene.push_back(every_gene);
                             }
                         }
-                        //novel isoform没有候选的基因;
+
                         if (TempGene.size() == 0) {
                             first_part = "NA";
-                            // novel isoform只有1个候选的基因;
+ 
                         } else if (TempGene.size() == 1) {
                             first_part = TempGene[0];
-                            //novel isoform有2个以上候选的基因;
+ 
                         } else {
                             TempDist.clear();
                             for (const auto& each_gene:TempGene){
@@ -3431,8 +3364,7 @@ int whether_isoform_part_is_not(std::vector<std::array<int,2>> AnnoSJ, std::vect
         if (it2 != AnnoSJ.end()){
             //计算出it2的索引;
             int it2_index = it2 - AnnoSJ.begin();
-            // std::cout << it2_index << std::endl;
-            //如果两个索引之间相差的大小等于长度减1;
+
             if (it2_index - it1_index == ISMSJ.size() - 1){
                 ISM_Flag = 1;
             }
@@ -3476,23 +3408,21 @@ IndicateFire Quantification_initialization(std::map<std::size_t, std::vector<std
                                            std::string& chrname) {
     // std::mutex& TraceMutex;
     IndicateFire OutputResults;
-    //生成的变量, 识别的转录本按照顺序;
+
     std::vector<std::string> Order_Transcript_Name;
-    //生成的变量, 最终的ISM指示矩阵;
+
     Eigen::MatrixXd known_ISM_matrix;
     std::vector<std::array<int,2>> AreadSJs;
     
-    //建立索引和判断条件;
     int RowIndex = -1;
     int ColIndex = -1;
     int flag = 0;
-
 
     for (const auto& eachTransctipt:FinallyAnnotations.Transcript_Annotations){
         Order_Transcript_Name.push_back(eachTransctipt.first);
     }
     Eigen::RowVectorXd EachClusterRowVector(Order_Transcript_Name.size());
-    //存储一个列向量, 每个类的个数, 方便后续做乘法;
+
     Eigen::VectorXd known_ISM_cluster_numbers;
 
     //ISM的追踪文件;
@@ -3544,7 +3474,6 @@ IndicateFire Quantification_initialization(std::map<std::size_t, std::vector<std
                     EachClusterRowVector(ColIndex) = 0;
                 }
             }
-
             // 在这里加一步过滤最好了, ISM如果有一个特别近的, 还有一个特别远的, 特别远的就去掉吧;
             if (ColIndexVec.size() > 1) {
                 if (max_ratio >= 0.5) {
@@ -3569,7 +3498,6 @@ IndicateFire Quantification_initialization(std::map<std::size_t, std::vector<std
                 known_ISM_cluster_numbers.conservativeResize(RowIndex+1, 1);
                 known_ISM_cluster_numbers(RowIndex, 0) = eachISM.second.size();
 
-                //开始输出ISM的追踪文件;
                 for (const auto& EachTranscript:ism_gtf_name){
                     size_t pos = EachTranscript.find('|');
                     if (pos != std::string::npos) {
@@ -3591,29 +3519,23 @@ IndicateFire Quantification_initialization(std::map<std::size_t, std::vector<std
 
     std::set<int> MergeFalseSet(falsenodeset.begin(), falsenodeset.end());
 
-    //初始化生成的指示矩阵;
     Eigen::MatrixXd False_novel_candidate_matrix(MergeFalseSet.size(), Order_Transcript_Name.size());
-    //每个错误节点的所有邻居集合;
+
     std::set<int> FalseNode_NeighborSet;
     std::set<int> FalseNode_TrueSet;
-    //对应正确节点的名称;
     std::string itsname;
-    //要查找的子字符串;
     std::string subStr;
-    //构造一个行向量;
     Eigen::RowVectorXd FalseNode_RowVector(Order_Transcript_Name.size());
     RowIndex = -1;
     int countC = 0;
     
     if (MergeFalseSet.size() != 0){
-        //构造识别出的所有正确节点;
+
         std::set<int> MergedTrueSet(truenodeset.begin(), truenodeset.end());
         
-        //遍历所有识别为错误的节点;
-        //找到每个错误节点的邻居节点 --- FalseNode_NeighborSet;
         for (const auto& FalseNode:MergeFalseSet){    
             RowIndex = RowIndex + 1;        
-            //找到与他相邻的节点;
+
             FalseNode_NeighborSet.clear();
             FalseNode_TrueSet.clear();            
             FalseNode_NeighborSet = Disinform.NodeDistanceSet[FalseNode];
@@ -3628,35 +3550,35 @@ IndicateFire Quantification_initialization(std::map<std::size_t, std::vector<std
                 //对所有的正确节点遍历;
                 for(const auto& EachTNode:FalseNode_TrueSet){
                     if (EachTNode < Disinform.Index2Anno.size()){
-                        //说明这个邻居是有注释的转录本;
+ 
                         itsname = Disinform.Index2Anno[EachTNode];
-                        //接下来找itsname在Order_Transcript_Name中的索引;
+
                         auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
                         FalseNode_RowVector[itwhere] = 1;
                         ism_gtf_name.push_back(itsname);
 
                     } else{
-                        //这个邻居是novel的转录本;
+ 
                         itsname = Disinform.Index2novelname[EachTNode];
                         auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
                         FalseNode_RowVector[itwhere] = 1;
                         ism_gtf_name.push_back(itsname);
                     }
                 }
-                //将这一行加入到矩阵中;
+
                 False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
             } 
             else
             {   
                 countC = 0;
-                //需要找邻居的邻居;
+
                 for(const auto& neinode:FalseNode_NeighborSet){
                     if (Disinform.NodeDistanceSet[neinode].size() != 0){
                         for (const auto& node:Disinform.NodeDistanceSet[neinode]){
                             if (node < Disinform.Index2Anno.size()){
-                                //说明这个邻居是有注释的转录本;
+ 
                                 itsname = Disinform.Index2Anno[node];
-                                //接下来找itsname在Order_Transcript_Name中的索引;
+ 
                                 auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
                                 FalseNode_RowVector[itwhere] = 1;
                                 ism_gtf_name.push_back(itsname);
@@ -3677,17 +3599,16 @@ IndicateFire Quantification_initialization(std::map<std::size_t, std::vector<std
                 if (countC != 0){
                     False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
                 } else {
-                    //这种情况下就是邻居的邻居也没有一个好的, 那就找距离最小值了;
+
                     std::vector<int> houX = {};
                     int distance = 0;
                     for (const auto& isofrorm:Order_Transcript_Name){
                         distance = IntervalMerge(FinallyAnnotations.Transcript_Annotations[isofrorm].first, Disinform.Index2Unknown[FalseNode]) - IntervalIntersection(FinallyAnnotations.Transcript_Annotations[isofrorm].first, Disinform.Index2Unknown[FalseNode]);
                         houX.push_back(distance);
                     }
-                    // 使用 std::min_element 找到最小元素的迭代器
+
                     auto min_it = std::min_element(houX.begin(), houX.end());
 
-                    // 计算最小元素的索引
                     int min_index = std::distance(houX.begin(), min_it);
                     FalseNode_RowVector[min_index] = 1;
                     False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
@@ -3697,7 +3618,7 @@ IndicateFire Quantification_initialization(std::map<std::size_t, std::vector<std
             }
             first_part_set.clear();
             second_part_set.clear();
-            //开始输出HighCon的追踪文件;
+
             for (const auto& EachTranscript:ism_gtf_name){
                 size_t pos = EachTranscript.find('|');
                 if (pos != std::string::npos) {
@@ -3726,8 +3647,6 @@ IndicateFire Quantification_initialization(std::map<std::size_t, std::vector<std
         False_novel_candidate_cluster_numbers[RowIndex] = Disinform.Index2Count[FalseNode];
     }
 
-
-    //最后输出结果矩阵和结果量;
     if (known_ISM_matrix.rows() != 0){
         if (False_novel_candidate_matrix.rows() != 0){
             OutputResults.Indicate_Matrix.resize(known_ISM_matrix.rows()+False_novel_candidate_matrix.rows(), known_ISM_matrix.cols());
@@ -3765,15 +3684,11 @@ IndicateFire Quantification_initialization_MultiFiles (std::map<std::size_t, std
                                                 std::unordered_map<std::string, std::vector<std::array<int,2>>>& groupreadsjs,
                                                 std::unordered_map<std::string, std::string>& groupreadfiles,
                                                 std::ofstream& Trace) {
-    // std::mutex& TraceMutex;
     IndicateFire OutputResults;
-    //生成的变量, 识别的转录本按照顺序;
     std::vector<std::string> Order_Transcript_Name;
-    //生成的变量, 最终的ISM指示矩阵;
     Eigen::MatrixXd known_ISM_matrix;
     std::vector<std::array<int,2>> AreadSJs;
     
-    //建立索引和判断条件;
     int RowIndex = -1;
     int ColIndex = -1;
     int flag = 0;
@@ -3782,10 +3697,8 @@ IndicateFire Quantification_initialization_MultiFiles (std::map<std::size_t, std
         Order_Transcript_Name.push_back(eachTransctipt.first);
     }
     Eigen::RowVectorXd EachClusterRowVector(Order_Transcript_Name.size());
-    //存储一个列向量, 每个类的个数, 方便后续做乘法;
     Eigen::VectorXd known_ISM_cluster_numbers;
 
-    //ISM的追踪文件;
     std::vector<std::string> ism_gtf_name;
     std::set<std::string> first_part_set;
     std::set<std::string> second_part_set;
@@ -3807,10 +3720,8 @@ IndicateFire Quantification_initialization_MultiFiles (std::map<std::size_t, std
             ColIndexVec.clear();   
             double max_ratio = 0;
             double this_ratio = 0;
-            //对每个注释遍历;
             for (const auto& eachTransctipt:Order_Transcript_Name){
                 ColIndex = ColIndex + 1;
-                //如果ISM的个数大于注释, 则不可能是1;
                 if (AreadSJs.size() < FinallyAnnotations.Transcript_Annotations[eachTransctipt].first.size()){
                     if ((AreadSJs[0][0] >= FinallyAnnotations.Transcript_Annotations[eachTransctipt].first[0][0]) && (AreadSJs[AreadSJs.size()-1][1] <= FinallyAnnotations.Transcript_Annotations[eachTransctipt].first[(FinallyAnnotations.Transcript_Annotations[eachTransctipt].first.size()-1)][1])){
                         flag = whether_isoform_part_is_not(FinallyAnnotations.Transcript_Annotations[eachTransctipt].first, AreadSJs);
@@ -3832,7 +3743,6 @@ IndicateFire Quantification_initialization_MultiFiles (std::map<std::size_t, std
                     EachClusterRowVector(ColIndex) = 0;
                 }
             }
-            // 在这里加一步过滤最好了, ISM如果有一个特别近的, 还有一个特别远的, 特别远的就去掉吧;
             if (ColIndexVec.size() > 1) {
                 if (max_ratio >= 0.5) {
                     for (const auto& ColIndex:ColIndexVec) {
@@ -3841,22 +3751,17 @@ IndicateFire Quantification_initialization_MultiFiles (std::map<std::size_t, std
                         if (this_ratio < max_ratio) {
                             EachClusterRowVector[ColIndex] = 0;
                             ism_gtf_name.erase(std::remove(ism_gtf_name.begin(), ism_gtf_name.end(), TransName), ism_gtf_name.end());
-                            // std::cout << " 删除 " << TransName << std::endl;
                         }
                     }
                 }
             } 
             if (ism_gtf_name.size() != 0){
-                //只有这一行不全为0, 才能放入矩阵;
                 RowIndex = RowIndex + 1;
-                //调整矩阵大小以容纳第一个行向量;
                 known_ISM_matrix.conservativeResize(RowIndex+1, Order_Transcript_Name.size());
                 known_ISM_matrix.row(RowIndex) = EachClusterRowVector;
-                //存储一个列向量, 每个类的个数, 方便后续做乘法;
                 known_ISM_cluster_numbers.conservativeResize(RowIndex+1, 1);
                 known_ISM_cluster_numbers(RowIndex, 0) = eachISM.second.size();
 
-                //开始输出ISM的追踪文件;
                 for (const auto& EachTranscript:ism_gtf_name){
                     size_t pos = EachTranscript.find('|');
                     if (pos != std::string::npos) {
@@ -3877,79 +3782,63 @@ IndicateFire Quantification_initialization_MultiFiles (std::map<std::size_t, std
     }
     std::set<int> MergeFalseSet(falsenodeset.begin(), falsenodeset.end());
 
-    //初始化生成的指示矩阵;
     Eigen::MatrixXd False_novel_candidate_matrix(MergeFalseSet.size(), Order_Transcript_Name.size());
-    //每个错误节点的所有邻居集合;
     std::set<int> FalseNode_NeighborSet;
     std::set<int> FalseNode_TrueSet;
-    //对应正确节点的名称;
     std::string itsname;
-    //要查找的子字符串;
     std::string subStr;
-    //构造一个行向量;
     Eigen::RowVectorXd FalseNode_RowVector(Order_Transcript_Name.size());
     RowIndex = -1;
     int countC = 0;
     
     if (MergeFalseSet.size() != 0) {
-        //构造识别出的所有正确节点;
+
         std::set<int> MergedTrueSet(truenodeset.begin(), truenodeset.end());
-        
-        //遍历所有识别为错误的节点;
-        //找到每个错误节点的邻居节点 --- FalseNode_NeighborSet;
         for (const auto& FalseNode:MergeFalseSet){    
             RowIndex = RowIndex + 1;        
-            //找到与他相邻的节点;
             FalseNode_NeighborSet.clear();
             FalseNode_TrueSet.clear();            
             FalseNode_NeighborSet = Disinform.NodeDistanceSet[FalseNode];
 
             std::set_intersection(MergedTrueSet.begin(), MergedTrueSet.end(), FalseNode_NeighborSet.begin(), FalseNode_NeighborSet.end(),
             std::inserter(FalseNode_TrueSet, FalseNode_TrueSet.begin()));
-
             FalseNode_RowVector.setZero();
             ism_gtf_name.clear();
 
             if (FalseNode_TrueSet.size() != 0) {
-                //对所有的正确节点遍历;
+                
                 for(const auto& EachTNode:FalseNode_TrueSet){
                     if (EachTNode < Disinform.Index2Anno.size()){
-                        //说明这个邻居是有注释的转录本;
+                    
                         itsname = Disinform.Index2Anno[EachTNode];
-                        //接下来找itsname在Order_Transcript_Name中的索引;
                         auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
                         FalseNode_RowVector[itwhere] = 1;
                         ism_gtf_name.push_back(itsname);
 
                     } else{
-                        //这个邻居是novel的转录本;
+                        
                         itsname = Disinform.Index2novelname[EachTNode];
                         auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
                         FalseNode_RowVector[itwhere] = 1;
                         ism_gtf_name.push_back(itsname);
                     }
                 }
-                //将这一行加入到矩阵中;
                 False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
             } 
             else
             {   
                 countC = 0;
-                //需要找邻居的邻居;
                 for(const auto& neinode:FalseNode_NeighborSet){
                     if (Disinform.NodeDistanceSet[neinode].size() != 0){
                         for (const auto& node:Disinform.NodeDistanceSet[neinode]){
                             if (node < Disinform.Index2Anno.size()){
-                                //说明这个邻居是有注释的转录本;
                                 itsname = Disinform.Index2Anno[node];
-                                //接下来找itsname在Order_Transcript_Name中的索引;
                                 auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
                                 FalseNode_RowVector[itwhere] = 1;
                                 ism_gtf_name.push_back(itsname);
                                 countC++;
                             } else {
                                 if (truenodeset.find(node) != truenodeset.end()) {
-                                    // 这个邻居是novel的转录本;
                                     itsname = Disinform.Index2novelname[node];
                                     auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
                                     FalseNode_RowVector[itwhere] = 1;
@@ -3963,17 +3852,15 @@ IndicateFire Quantification_initialization_MultiFiles (std::map<std::size_t, std
                 if (countC != 0){
                     False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
                 } else {
-                    //这种情况下就是邻居的邻居也没有一个好的, 那就找距离最小值了;
+
                     std::vector<int> houX = {};
                     int distance = 0;
                     for (const auto& isofrorm:Order_Transcript_Name){
                         distance = IntervalMerge(FinallyAnnotations.Transcript_Annotations[isofrorm].first, Disinform.Index2Unknown[FalseNode]) - IntervalIntersection(FinallyAnnotations.Transcript_Annotations[isofrorm].first, Disinform.Index2Unknown[FalseNode]);
                         houX.push_back(distance);
                     }
-                    // 使用 std::min_element 找到最小元素的迭代器
-                    auto min_it = std::min_element(houX.begin(), houX.end());
 
-                    // 计算最小元素的索引
+                    auto min_it = std::min_element(houX.begin(), houX.end());
                     int min_index = std::distance(houX.begin(), min_it);
                     FalseNode_RowVector[min_index] = 1;
                     False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
@@ -3983,7 +3870,7 @@ IndicateFire Quantification_initialization_MultiFiles (std::map<std::size_t, std
             }
             first_part_set.clear();
             second_part_set.clear();
-            //开始输出HighCon的追踪文件;
+
             for (const auto& EachTranscript:ism_gtf_name){
                 size_t pos = EachTranscript.find('|');
                 if (pos != std::string::npos) {
@@ -4004,7 +3891,7 @@ IndicateFire Quantification_initialization_MultiFiles (std::map<std::size_t, std
             }            
         }
     }
-    //存储一个列向量, 每个类的个数, 方便后续做乘法;
+ 
     Eigen::VectorXd False_novel_candidate_cluster_numbers(MergeFalseSet.size());
     RowIndex = -1;
     for (const auto& FalseNode:MergeFalseSet){
@@ -4012,7 +3899,6 @@ IndicateFire Quantification_initialization_MultiFiles (std::map<std::size_t, std
         False_novel_candidate_cluster_numbers[RowIndex] = faslenode2count[FalseNode].size();
     }
 
-    //最后输出结果矩阵和结果量;
     if (known_ISM_matrix.rows() != 0){
         if (False_novel_candidate_matrix.rows() != 0){
             OutputResults.Indicate_Matrix.resize(known_ISM_matrix.rows()+False_novel_candidate_matrix.rows(), known_ISM_matrix.cols());
@@ -4039,39 +3925,31 @@ IndicateFire Quantification_initialization_MultiFiles (std::map<std::size_t, std
 
 
 std::map<std::string, double> EM_Alg (OutputInformation& FinallyAnnotations, IndicateFire& Indicate_Number, 
-             std::ofstream& isoformCountPath) {
-    // 输出;
+             std::ofstream& isoformCountPath, int& rc_threshold) {
     std::map<std::string, double> geneCounts;
-    //直接输出量化结果;
     if (Indicate_Number.Indicate_Matrix.rows() != 0 && Indicate_Number.Indicate_Matrix.cols() != 0){
         std::string its_name;
-        // 初始化概率向量
         Eigen::VectorXd P_Col_init0 = Eigen::VectorXd::Constant(
             Indicate_Number.Order_Transcript_Name_Vector.size(),
             1.0 / Indicate_Number.Order_Transcript_Name_Vector.size() 
         );
-        // 初始化;
+
         Eigen::MatrixXd Z(Indicate_Number.Indicate_Matrix.rows(), Indicate_Number.Indicate_Matrix.cols());
         Eigen::VectorXd P1(P_Col_init0.size());
         Eigen::MatrixXd AnnoN;
-        int CountCyc = 1; // 初始化为 1，与原代码对齐
+        int CountCyc = 1; 
         double sum_abs_diff;
         do {
-
             Z = Indicate_Number.Indicate_Matrix.array().rowwise() * P_Col_init0.transpose().array();
             Z.array().colwise() /= (Indicate_Number.Indicate_Matrix * P_Col_init0).array();
-
             AnnoN = ((Indicate_Number.Cluster_Number.transpose()) * Z).transpose().reshaped(Indicate_Number.Indicate_Matrix.cols(),1);
-
             P1 = AnnoN / AnnoN.sum();
-
             sum_abs_diff = (P1 - P_Col_init0).cwiseAbs().sum();
-
             P_Col_init0 = P1;
             CountCyc = CountCyc + 1;
         } while ((sum_abs_diff > 5e-2) || (CountCyc <= 10));
     
-        for (int i = 0; i < AnnoN.rows(); i++){
+        for (int i = 0; i < AnnoN.rows(); i++) {
             its_name = Indicate_Number.Order_Transcript_Name_Vector[i];
             FinallyAnnotations.Transcript_Annotations[its_name].second = FinallyAnnotations.Transcript_Annotations[its_name].second + AnnoN(i,0);
         }
@@ -4082,23 +3960,21 @@ std::map<std::string, double> EM_Alg (OutputInformation& FinallyAnnotations, Ind
     std::string first_part;
 
     if (isoformCountPath.is_open()){
-        // 这里是多个exon的;
         for (const auto& eachAnno:FinallyAnnotations.Transcript_Annotations){
             size_t pos = eachAnno.first.find('|');
             if (pos != std::string::npos) {
-                // 根据 "|" 将字符串分割为两部分
                 second_part = eachAnno.first.substr(pos + 1);
             } else {
                 second_part = eachAnno.first;
             }
             geneName = FinallyAnnotations.transcript2gene[eachAnno.first];
-            if (eachAnno.second.second > 0){
+            if (eachAnno.second.second >= rc_threshold) {
                 std::unique_lock<std::mutex> lock(isoformCountMutex);
-                isoformCountPath << second_part << '\t' << geneName << '\t' << int(eachAnno.second.second) << '\n';
+                isoformCountPath << second_part << '\t' << geneName << '\t' << (eachAnno.second.second) << '\n';
             }
-            if (geneName != "NA"){
+            if (geneName != "NA") {
                 auto it = geneCounts.find(FinallyAnnotations.transcript2gene[eachAnno.first]);
-                if (it != geneCounts.end()){
+                if (it != geneCounts.end()) {
                     geneCounts[geneName] = geneCounts[geneName] + eachAnno.second.second;
                 } else {
                     geneCounts[geneName] = eachAnno.second.second;
@@ -4109,18 +3985,17 @@ std::map<std::string, double> EM_Alg (OutputInformation& FinallyAnnotations, Ind
     return geneCounts;
 }   
 
-// 最终EM算法的步骤;
+
 void EM_Alg_MultiFiles (OutputInformation& FinallyAnnotations, 
                         IndicateFire& Indicate_Number, 
                         int& FileNumber) {
-    //直接输出量化结果;
     if (Indicate_Number.Indicate_Matrix.rows() != 0 && Indicate_Number.Indicate_Matrix.cols() != 0) {
-        // 初始化概率向量
+
         Eigen::VectorXd P_Col_init0 = Eigen::VectorXd::Constant(
             Indicate_Number.Order_Transcript_Name_Vector.size(),
             1.0 / Indicate_Number.Order_Transcript_Name_Vector.size() 
         );
-        // 初始化;
+
         Eigen::MatrixXd Z(Indicate_Number.Indicate_Matrix.rows(), Indicate_Number.Indicate_Matrix.cols());
         Eigen::VectorXd P1(P_Col_init0.size());
         Eigen::MatrixXd AnnoN;
@@ -4128,21 +4003,15 @@ void EM_Alg_MultiFiles (OutputInformation& FinallyAnnotations,
         double sum_abs_diff;
 
         do {
-
             Z = Indicate_Number.Indicate_Matrix.array().rowwise() * P_Col_init0.transpose().array();
             Z.array().colwise() /= (Indicate_Number.Indicate_Matrix * P_Col_init0).array();
-
             AnnoN = ((Indicate_Number.Cluster_Number.transpose()) * Z).transpose().reshaped(Indicate_Number.Indicate_Matrix.cols(),1);
-
             P1 = AnnoN / AnnoN.sum();
-
             sum_abs_diff = (P1 - P_Col_init0).cwiseAbs().sum();
-
             P_Col_init0 = P1;
             CountCyc = CountCyc + 1;
         } while ((sum_abs_diff > 5e-2) || (CountCyc <= 10));
     
-
         std::string its_name;
         for (int i = 0; i < AnnoN.rows(); i++){
             its_name = Indicate_Number.Order_Transcript_Name_Vector[i];
@@ -4154,17 +4023,17 @@ void EM_Alg_MultiFiles (OutputInformation& FinallyAnnotations,
 std::map<std::string, std::map<std::string, double>> get_allfile_genecounts(
                                             OutputInformation& FinallyAnnotations, 
                                             int& AllFileNumber, 
-                                            std::ofstream& isoformCountPath){
+                                            std::ofstream& isoformCountPath,
+                                            int& rc_threshold){
     std::map<std::string, std::map<std::string, double>> geneCounts;
     std::string geneName;
     std::string second_part;
-    //将结果输出到丰度文件; 这里是多个exon的;
+
     if (isoformCountPath.is_open()) {
         for (const auto& eachAnno:FinallyAnnotations.File_TranscriptNumber["0"]) {
-            // 一个一个注释和novel;
+
             size_t pos = eachAnno.first.find('|');
             if (pos != std::string::npos) {
-                // 根据 "|" 将字符串分割为两部分
                 second_part = eachAnno.first.substr(pos + 1);
             } else {
                 second_part = eachAnno.first;
@@ -4175,7 +4044,11 @@ std::map<std::string, std::map<std::string, double>> get_allfile_genecounts(
                 isoformCountPath << second_part << '\t' << geneName;
                 for (int i = 0; i < AllFileNumber; i++) {
                     std::string filenumber = std::to_string(i);
-                    isoformCountPath << '\t' << int(FinallyAnnotations.File_TranscriptNumber[filenumber][eachAnno.first]);
+                    if (FinallyAnnotations.File_TranscriptNumber[filenumber][eachAnno.first] < rc_threshold) {
+                        isoformCountPath << '\t' << 0;
+                    } else {
+                        isoformCountPath << '\t' << FinallyAnnotations.File_TranscriptNumber[filenumber][eachAnno.first];
+                    }
                 }            
                 isoformCountPath << '\n';
             } 
@@ -4207,31 +4080,27 @@ std::map<std::string, std::map<std::string, double>> DetectQuant(GroupAnnotation
                  GTF& gtfexon, GTFsj& gtfsjs,
                  std::ofstream& gtfFilePath, std::ofstream& isoformFilePath,
                  std::ofstream& traceFilePath, int& FileNo,
-                 std::unordered_map<std::string, std::array<int,2>>& singleexonanno) {
-    // std::mutex& genemutex, std::mutex& isoformmutex, std::mutex& gtfmutex, std::mutex& tracemutex;
-    // 识别和定量;
+                 std::unordered_map<std::string, std::array<int,2>>& singleexonanno, int& RC_threshold) {
+
     std::string chrchr = groupinform.chrName;
     std::string groupnumber = groupinform.GroupIndex;
     DistanceInform DMatrix_GraphNode = get_distance_matrix(groupanno.Group_Annotations, 
                                                            splicechainclass.HighConClusters, 
                                                            groupinform.GroupReadSjs, 
                                                            groupdistance, splicechainclass.FSM);
-    // 最终输出;
+
     std::map<std::string, std::map<std::string, double>> AllFile_GeneCounts;
-    if (DMatrix_GraphNode.NodeDistanceSet.size() != 0) {
-        // 寻找最大团;
+    if (DMatrix_GraphNode.NodeDistanceSet.size() != 0) { 
         std::vector<std::vector<int>> CliquesVector = Find_Maximal_Cliques(DMatrix_GraphNode.NodeDistanceSet);
 
-        // 识别;
         DetectionResults NodeResults = Transcript_Detection(CliquesVector, 
                                                             DMatrix_GraphNode.Index2Anno, 
                                                             DMatrix_GraphNode.Index2Unknown, 
                                                             DMatrix_GraphNode.Index2Count);
-        // 量化前拆分;
+  
         if (FileNo > 1) {
-            // 多于一个sam文件, 就需要拆分;
             Solvent SpliceChainSolvent = get_Solvent_FsmIsmHigh(splicechainclass, FileNo, groupinform);
-            // 写到更新的注释中;
+   
             OutputInformation Finally_Annotations = Write_Detection_Transcript2gtf_MultiFiles(gtfFilePath, traceFilePath, 
                                                     NodeResults, DMatrix_GraphNode, 
                                                     gtfsjs.mSJs[chrchr], gtfexon.GTF_transcript[chrchr], 
@@ -4244,14 +4113,13 @@ std::map<std::string, std::map<std::string, double>> DetectQuant(GroupAnnotation
                                                     SpliceChainSolvent,
                                                     singleexonanno,
                                                     gtfexon.GTF_gene2transcript[chrchr]); 
-            // 对每一个文件量化;
+
             for (int k = 0; k < FileNo; k++) {
                 FileFalseNode This_File_False_Node = get_File_False_node(NodeResults.FalseNodeSet,
                                                                         DMatrix_GraphNode.Index2hashname,
                                                                         SpliceChainSolvent.File_HighConClusters,
                                                                         k);
-                // 量化;
-                // 量化第一步, 准备好所有变量, 初始化;
+
                 IndicateFire InitFirefly = Quantification_initialization_MultiFiles(SpliceChainSolvent.File_ISM[std::to_string(k)], 
                                                             Finally_Annotations, NodeResults.TrueNodeSet,
                                                             This_File_False_Node.ThisFlaseNode, 
@@ -4260,15 +4128,13 @@ std::map<std::string, std::map<std::string, double>> DetectQuant(GroupAnnotation
                                                             SpliceChainSolvent.File_HighConClusters[std::to_string(k)], 
                                                             groupinform.GroupReadSjs, 
                                                             groupinform.GroupReadFiles,
-                                                            traceFilePath); //tracemutex
-                //量化第二步, EM算法;
-                EM_Alg_MultiFiles(Finally_Annotations, InitFirefly, k); // 为了得到所有样本的结果;
+                                                            traceFilePath); 
+                EM_Alg_MultiFiles(Finally_Annotations, InitFirefly, k); 
                 // std::cout << "(=^_^=) Group " << groupinform.GroupIndex << " in file " << k << " completed quantification! (=^_^=) " << std::endl;                     
             }
-            AllFile_GeneCounts = get_allfile_genecounts(Finally_Annotations, FileNo, isoformFilePath);
-            return AllFile_GeneCounts; // map<gene, map<file,counts>>
+            AllFile_GeneCounts = get_allfile_genecounts(Finally_Annotations, FileNo, isoformFilePath, RC_threshold);
+            return AllFile_GeneCounts; 
         } else {
-            // 写到更新的注释中;
             OutputInformation Finally_Annotations = Write_Detection_Transcript2gtf(gtfFilePath, traceFilePath, 
                                                     NodeResults, DMatrix_GraphNode, 
                                                     gtfsjs.mSJs[chrchr], gtfexon.GTF_transcript[chrchr], 
@@ -4280,8 +4146,7 @@ std::map<std::string, std::map<std::string, double>> DetectQuant(GroupAnnotation
                                                     groupinform.GroupReadFiles,
                                                     singleexonanno,
                                                     gtfexon.GTF_gene2transcript[chrchr]);
-            // 量化;
-            // 量化第一步, 准备好所有变量, 初始化;
+
             IndicateFire InitFirefly = Quantification_initialization(splicechainclass.ISM, 
                                                         Finally_Annotations, NodeResults.TrueNodeSet,
                                                         NodeResults.FalseNodeSet, 
@@ -4291,10 +4156,10 @@ std::map<std::string, std::map<std::string, double>> DetectQuant(GroupAnnotation
                                                         groupinform.GroupReadFiles, 
                                                         traceFilePath,
                                                         groupinform.chrName);
-            //量化第二步, EM算法;
-            AllFile_GeneCounts["0"] = EM_Alg(Finally_Annotations, InitFirefly, isoformFilePath);
+
+            AllFile_GeneCounts["0"] = EM_Alg(Finally_Annotations, InitFirefly, isoformFilePath, RC_threshold);
             // std::cout << "(=^_^=) Group " << groupinform.GroupIndex << " reads numbers " << groupinform.GroupReadSjs.size()  << " completed quantification! (=^_^=) " << std::endl;  
-            return AllFile_GeneCounts; //map<file, <gene,counts>>
+            return AllFile_GeneCounts; 
         }
     } else {
         return AllFile_GeneCounts;
@@ -4436,7 +4301,7 @@ void write_genecount_file(int& FileNo, std::unordered_map<std::string, std::map<
                 }               
             } /* 以上是都有的文件的情况 */
         } else if (Single.size() != 0) {
-            // 开始写入文件;
+
             if (geneFilePath.is_open()) {
                 for (const auto& eachG:Single) {
                     std::map<std::string, double> file2count = eachG.second;
@@ -4465,7 +4330,7 @@ void write_genecount_file(int& FileNo, std::unordered_map<std::string, std::map<
 }
 
 
-// 一个简单的处理函数，可以替换为你的处理逻辑
+
 void processGroup(std::streampos& start, std::streampos& end, 
                   const std::string& sam_file_path, 
                   const int& Sj_supportReadNumber, GTF& gtf_full, 
@@ -4473,7 +4338,7 @@ void processGroup(std::streampos& start, std::streampos& end,
                   const int& GraphDis,
                   std::ofstream& updatedgtffile, std::ofstream& isoformcountfile,
                   std::ofstream& genecountfile, std::ofstream& tracefile,
-                  int& fileno, int& singleEdge) {
+                  int& fileno, int& singleEdge, int& ReadCount_threshold) {
 
     GroupInformation group_information = knowGroupInformation(start, end, sam_file_path, Sj_supportReadNumber);
     std::string chrchr = group_information.chrName;
@@ -4511,17 +4376,18 @@ void processGroup(std::streampos& start, std::streampos& end,
                                                 group_information.GroupReadFiles, 
                                                 tracefile, Sj_supportReadNumber, chrchr); 
         
-        file_multiexon_gene_number = DetectQuant(group_annotation, spliceclass, group_information, GraphDis, gtf_full, gtf_splice, updatedgtffile, isoformcountfile, tracefile, fileno, single_exon_group_annotation); 
+        file_multiexon_gene_number = DetectQuant(group_annotation, spliceclass, group_information, 
+                                        GraphDis, gtf_full, gtf_splice, updatedgtffile, isoformcountfile, 
+                                        tracefile, fileno, single_exon_group_annotation, ReadCount_threshold); 
     }
     write_genecount_file(fileno, file_singleexon_gene_number, file_multiexon_gene_number, genecountfile);
     std::cout << group_information.GroupIndex << " is end! reads size is " << group_information.GroupReadSjs.size() << "!"<< std::endl;
 }
 
 
-// 主函数;
+
 int main(int argc, char* argv[])
 {   
-    // 命名空间; 
     int option_index = 0;
     int c;
 
@@ -4535,9 +4401,10 @@ int main(int argc, char* argv[])
     int Graph_distance = 60;
     int Thread = 10;
     int mode = 0;
+    int Read_count = 1;
     int single_exon_edge = 60;
 
-    while ((c = getopt_long(argc, argv, "s:f:g:o:m:j:n:e:d:t:h", long_options, &option_index)) != -1) {
+    while ((c = getopt_long(argc, argv, "s:f:g:o:m:j:n:e:d:t:r:h", long_options, &option_index)) != -1) {
         switch (c) {
             case 's':
                 samfile_name = optarg;
@@ -4569,6 +4436,9 @@ int main(int argc, char* argv[])
             case 't':
                 Thread = std::stoi(optarg);   
                 break;
+            case 'r':
+                Read_count = std::stoi(optarg);   
+                break;
             case 'h':
                 print_usage(argv[0]);
                 exit(EXIT_FAILURE);              
@@ -4593,33 +4463,29 @@ int main(int argc, char* argv[])
     std::ofstream trace_file(outputFileVec[3], std::ios::app);
 
     std::cout << "*****" << std::endl;
-    std::cout << "SAM file: " << samfile_name << std::endl;
+    std::cout << "Input file: " << samfile_name << std::endl;
     std::cout << "FASTA file: " << fastafile_name << std::endl;
     std::cout << "GTF file: " << gtffile_name << std::endl;
     std::cout << "Output file: " << output_file_name << std::endl;
     std::cout << "Mode: " << mode << std::endl;
     std::cout << "Single exon boundary: " << single_exon_edge << std::endl;
-    std::cout << "SJDistance: " << SJDistance << std::endl;
-    std::cout << "SJ_support_read_number: " << SJ_support_read_number << std::endl;
-    std::cout << "single_exon_edge : " << single_exon_edge << std::endl;
-    std::cout << "Graph_distance: " << Graph_distance << std::endl;
+    std::cout << "SJ Distance: " << SJDistance << std::endl;
+    std::cout << "SJ support read number: " << SJ_support_read_number << std::endl;
+    std::cout << "Graph distance: " << Graph_distance << std::endl;
     std::cout << "Thread: " << Thread << std::endl;
+    std::cout << "Output min read count: " << Read_count << std::endl;
     std::cout << "*****" << std::endl;
 
     std::unordered_map<std::string, std::string> Fasta = Read_fasta_file(fastafile_name);
-
     FileSplit BroCOLIfile = thread_all_read_sam_files(samfile_name, sam_file_vec, Thread, output_file_name, SJDistance, Fasta);
     Fasta.clear();
 
     GTF GTF_full = get_gtf_annotation(gtffile_name);
-
     GTFsj GTF_Splice = get_SJs_SE(GTF_full.GTF_transcript);
     
     std::vector<std::size_t> Group_idx = sort_indexes_e(BroCOLIfile.group_reads_number);
   
-    
     ThreadPool BroCOLIpool(Thread);
-    
     std::vector<std::future<void>> futures;
     for (const auto& i:Group_idx) {
         futures.emplace_back(BroCOLIpool.enqueue([&, i]() { 
@@ -4637,7 +4503,8 @@ int main(int argc, char* argv[])
                 gene_file,
                 trace_file,
                 BroCOLIfile.FileNo,
-                single_exon_edge);
+                single_exon_edge,
+                Read_count);
             }));
     }
 
@@ -4649,6 +4516,7 @@ int main(int argc, char* argv[])
     isoform_file.close();
     gene_file.close();
     trace_file.close();
+
     return 0;
 }
 

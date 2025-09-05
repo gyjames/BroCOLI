@@ -811,6 +811,7 @@ static struct option long_options[] = {
     {"thread", required_argument, 0, 't'}, 
     {"umi", required_argument, 0, 'u'},
     {"barcode", required_argument, 0, 'b'},
+    {"output_min_read_count", required_argument, 0, 'r'}, 
     {"help", no_argument, 0, 'h'},
     {0, 0, 0, 0}  
 };
@@ -870,6 +871,7 @@ void print_usage(const char* program_name) {
     std::cout << "  -t, --thread                thread number (optional, default:8)." << std::endl;
     std::cout << "  -u, --umi                   umi_tag (optional, default:U8:Z:)." << std::endl;
     std::cout << "  -b, --barcode               barcode_tag (optional, default:BC:Z:)." << std::endl;
+    std::cout << "  -r, --output_min_read_count the minimum number of transcripts in the output results. (optional, int, default:1)" << std::endl;
     std::cout << "  -h, --help                  show this help information." << std::endl;
 }
 
@@ -906,21 +908,39 @@ std::vector<std::string> check_catalog_exist(const std::string& output_path) {
 
 
 std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, const std::string& output_path){
-
     std::vector<std::string> sam_file_vector;
-
     struct stat sam_stat;
-
     stat(sam_file_path.c_str(), &sam_stat);
 
     if (S_ISREG(sam_stat.st_mode)) {
-
-        std::cout << "* Only one sam file is entered! * << " << sam_file_path << std::endl;
-
-        sam_file_vector.push_back(sam_file_path);
-
+        if (sam_file_path.rfind(".txt") == sam_file_path.length() - 4 || sam_file_path.rfind(".tsv") == sam_file_path.length()) {
+            std::cout << "* This is a txt/tsv file! * << " << sam_file_path << std::endl;
+            std::ifstream infile(sam_file_path);
+            if (!infile) {
+                std::cerr << "The file cannot be opened: " << sam_file_path << std::endl;
+                std::cerr << "* Not a valid file! *" << strerror(errno) << std::endl;
+            }            
+            std::string line;
+            while (std::getline(infile, line)) {
+                if (!line.empty()) {
+                    sam_file_vector.push_back(line);
+                }
+            }
+            infile.close();
+            if (sam_file_vector.size() == 0) {
+                std::cout << "^-^ There are " << 0 << " sam files in total. ^-^" << std::endl;
+                std::cerr << "* Not a valid file! *" << strerror(errno) << std::endl;
+            } else {
+                std::cout << "^-^ There are " << sam_file_vector.size() << " sam files in total. ^-^" << std::endl;
+            }
+        } else if (sam_file_path.rfind(".sam") == sam_file_path.length() - 4) {
+            std::cout << "* Only one sam file is entered! * << " << sam_file_path << std::endl;
+            sam_file_vector.push_back(sam_file_path);
+        } else {
+            std::cerr << "* Not a valid file! *" << strerror(errno) << std::endl;
+        }
+        
     } else if (S_ISDIR(sam_stat.st_mode)) {
- 
         std::cout << "* A folder was entered! * << " << sam_file_path << std::endl;
         DIR* dir = opendir(sam_file_path.c_str());
         struct dirent* entry;
@@ -928,7 +948,6 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
             if (entry->d_name[0] != '.') { 
                 std::string fileName = entry->d_name;
                 std::cout << "Find file: " << fileName << std::endl;
-
                 if (fileName.rfind(".sam") == fileName.length() - 4) {
                     sam_file_vector.push_back(fileName);
                 }
@@ -3233,7 +3252,7 @@ Barcode_sc get_Barcode_FsmIsmHigh(std::map<std::string, std::vector<std::string>
             }
         }
     }
-    // HC
+
     if (thisfileHC.size() != 0) {
         for (const auto& eachHC:thisfileHC) {
             std::size_t HCname = eachHC.first;
@@ -3311,7 +3330,7 @@ int whether_isoform_part_is_not(std::vector<std::array<int,2>> AnnoSJ, std::vect
 
 std::string concatenateSet(const std::set<std::string>& stringSet) {
     if (stringSet.empty()) {
-        return ""; // 如果集合为空，返回空字符串
+        return "";
     }
     std::ostringstream oss;
     std::string oss_string;
@@ -3343,9 +3362,7 @@ IndicateFire Quantification_initialization_Barcodes (std::map<std::size_t, std::
                                                 std::unordered_map<std::string, std::string>& groupreadbarcodes,
                                                 std::ofstream& Trace) {
     IndicateFire OutputResults;
-    //生成的变量, 识别的转录本按照顺序;
     std::vector<std::string> Order_Transcript_Name;
-    //生成的变量, 最终的ISM指示矩阵;
     Eigen::MatrixXd known_ISM_matrix;
     std::vector<std::array<int,2>> AreadSJs;
     
@@ -3357,7 +3374,6 @@ IndicateFire Quantification_initialization_Barcodes (std::map<std::size_t, std::
         Order_Transcript_Name.push_back(eachTransctipt.first);
     }
     Eigen::RowVectorXd EachClusterRowVector(Order_Transcript_Name.size());
-
     Eigen::VectorXd known_ISM_cluster_numbers;
 
     //ISM的追踪文件;
@@ -3380,10 +3396,9 @@ IndicateFire Quantification_initialization_Barcodes (std::map<std::size_t, std::
             ism_gtf_name.clear();
             first_part_set.clear();
             second_part_set.clear();            
-            //对每个注释遍历;
+
             for (const auto& eachTransctipt:Order_Transcript_Name){
                 ColIndex = ColIndex + 1;
-
                 if (AreadSJs.size() < FinallyAnnotations.Transcript_Annotations[eachTransctipt].first.size()){
                     if ((AreadSJs[0][0] >= FinallyAnnotations.Transcript_Annotations[eachTransctipt].first[0][0]) && (AreadSJs[AreadSJs.size()-1][1] <= FinallyAnnotations.Transcript_Annotations[eachTransctipt].first[(FinallyAnnotations.Transcript_Annotations[eachTransctipt].first.size()-1)][1])){
                         flag = whether_isoform_part_is_not(FinallyAnnotations.Transcript_Annotations[eachTransctipt].first, AreadSJs);
@@ -3414,7 +3429,6 @@ IndicateFire Quantification_initialization_Barcodes (std::map<std::size_t, std::
                         if (this_ratio < max_ratio) {
                             EachClusterRowVector[ColIndex] = 0;
                             ism_gtf_name.erase(std::remove(ism_gtf_name.begin(), ism_gtf_name.end(), TransName), ism_gtf_name.end());
-                            // std::cout << " 删除 " << TransName << std::endl;
                         }
                     }
                 }
@@ -3422,7 +3436,6 @@ IndicateFire Quantification_initialization_Barcodes (std::map<std::size_t, std::
             if (ism_gtf_name.size() != 0){
 
                 RowIndex = RowIndex + 1;
-
                 known_ISM_matrix.conservativeResize(RowIndex+1, Order_Transcript_Name.size());
                 known_ISM_matrix.row(RowIndex) = EachClusterRowVector;
                 known_ISM_cluster_numbers.conservativeResize(RowIndex+1, 1);
@@ -3448,14 +3461,10 @@ IndicateFire Quantification_initialization_Barcodes (std::map<std::size_t, std::
     }
 
     std::set<int> MergeFalseSet(falsenodeset.begin(), falsenodeset.end());
-
     Eigen::MatrixXd False_novel_candidate_matrix(MergeFalseSet.size(), Order_Transcript_Name.size());
-
     std::set<int> FalseNode_NeighborSet;
     std::set<int> FalseNode_TrueSet;
-
     std::string itsname;
-
     Eigen::RowVectorXd FalseNode_RowVector(Order_Transcript_Name.size());
     RowIndex = -1;
     int countC = 0;
@@ -3465,33 +3474,25 @@ IndicateFire Quantification_initialization_Barcodes (std::map<std::size_t, std::
         
         for (const auto& FalseNode:MergeFalseSet){    
             RowIndex = RowIndex + 1;        
-            //找到与他相邻的节点;
             FalseNode_NeighborSet.clear();
             FalseNode_TrueSet.clear();            
             FalseNode_NeighborSet = Disinform.NodeDistanceSet[FalseNode];
-
             std::set_intersection(MergedTrueSet.begin(), MergedTrueSet.end(), FalseNode_NeighborSet.begin(), FalseNode_NeighborSet.end(),
             std::inserter(FalseNode_TrueSet, FalseNode_TrueSet.begin()));
-
             FalseNode_RowVector.setZero();
             ism_gtf_name.clear();
 
             if (FalseNode_TrueSet.size() != 0) {
-                //对所有的正确节点遍历;
                 for(const auto& EachTNode:FalseNode_TrueSet){
                     if (EachTNode < Disinform.Index2Anno.size()){
                         itsname = Disinform.Index2Anno[EachTNode];
                         auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
                         FalseNode_RowVector[itwhere] = 1;
                         ism_gtf_name.push_back(itsname);
-
                     } else
                     {
-
                         itsname = Disinform.Index2novelname[EachTNode];
-
                         auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
-
                         FalseNode_RowVector[itwhere] = 1;
                         ism_gtf_name.push_back(itsname);
                     }
@@ -3502,21 +3503,17 @@ IndicateFire Quantification_initialization_Barcodes (std::map<std::size_t, std::
             else
             {   
                 countC = 0;
-
                 for(const auto& neinode:FalseNode_NeighborSet) {
                     if (Disinform.NodeDistanceSet[neinode].size() != 0){
                         for (const auto& node:Disinform.NodeDistanceSet[neinode]){
-                            if (node < Disinform.Index2Anno.size()){
-
+                            if (node < Disinform.Index2Anno.size()) {
                                 itsname = Disinform.Index2Anno[node];
-
                                 auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
                                 FalseNode_RowVector[itwhere] = 1;
                                 ism_gtf_name.push_back(itsname);
                                 countC++;
                             } else {
                                 if (truenodeset.find(node) != truenodeset.end()) {
-
                                     itsname = Disinform.Index2novelname[node];
                                     auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
                                     FalseNode_RowVector[itwhere] = 1;
@@ -3539,8 +3536,6 @@ IndicateFire Quantification_initialization_Barcodes (std::map<std::size_t, std::
                     }
 
                     auto min_it = std::min_element(houX.begin(), houX.end());
-
-                    // 计算最小元素的索引
                     int min_index = std::distance(houX.begin(), min_it);
                     FalseNode_RowVector[min_index] = 1;
                     False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
@@ -3612,7 +3607,7 @@ void EM_Alg_Barcodes (std::unordered_map<std::string, std::unordered_map<std::st
             Indicate_Number.Order_Transcript_Name_Vector.size(),
             1.0 / Indicate_Number.Order_Transcript_Name_Vector.size() 
         );
-        // 初始化;
+
         Eigen::MatrixXd Z(Indicate_Number.Indicate_Matrix.rows(), Indicate_Number.Indicate_Matrix.cols());
         Eigen::VectorXd P1(P_Col_init0.size());
         Eigen::MatrixXd AnnoN;
@@ -3620,14 +3615,11 @@ void EM_Alg_Barcodes (std::unordered_map<std::string, std::unordered_map<std::st
         double sum_abs_diff;
 
         do {
-
             Z = Indicate_Number.Indicate_Matrix.array().rowwise() * P_Col_init0.transpose().array();
             Z.array().colwise() /= (Indicate_Number.Indicate_Matrix * P_Col_init0).array();
-
             AnnoN = ((Indicate_Number.Cluster_Number.transpose()) * Z).transpose().reshaped(Indicate_Number.Indicate_Matrix.cols(),1);
             P1 = AnnoN / AnnoN.sum();
             sum_abs_diff = (P1 - P_Col_init0).cwiseAbs().sum();
-
             P_Col_init0 = P1;
             CountCyc = CountCyc + 1;
         } while ((sum_abs_diff > 5e-2) || (CountCyc <= 10));
@@ -3644,7 +3636,7 @@ void EM_Alg_Barcodes (std::unordered_map<std::string, std::unordered_map<std::st
 void write_transcript_file(std::unordered_map<std::string, std::unordered_map<std::string, double>>& filetranscriptnumber,
                             OutputInformation& FinallyAnnotations, std::set<std::string>& barcodeset, int& filenumber,
                             std::vector<std::unique_ptr<std::ofstream>>& AllIsoformFilePath,
-                            std::vector<std::mutex>& AllIsoformMutexes) {
+                            std::vector<std::mutex>& AllIsoformMutexes, int& rc_threshold) {
 
     std::string transcript_name;
     std::string gene_name;
@@ -3669,16 +3661,15 @@ void write_transcript_file(std::unordered_map<std::string, std::unordered_map<st
                 transcript_name = eachAnno.first;
             }
             gene_name = FinallyAnnotations.transcript2gene[eachAnno.first];
-            // 写入;
             {
                 std::unique_lock<std::mutex> lock(AllIsoformMutexes[filenumber]);
                 *(AllIsoformFilePath[filenumber]) << transcript_name << '\t' << gene_name;
                 for (const auto& eachBar:barcodeset) {
                     double Counts = transcriptbarcodenumber[eachAnno.first][eachBar];
-                    if ( Counts < 0.1 ) {
+                    if ( Counts < rc_threshold ) {
                         *(AllIsoformFilePath[filenumber]) << '\t' << 0;
                     } else {
-                        *(AllIsoformFilePath[filenumber]) << '\t' << int(Counts);
+                        *(AllIsoformFilePath[filenumber]) << '\t' << Counts;
                     }
                     
                 }
@@ -3702,8 +3693,9 @@ void DetectQuant(GroupAnnotation& groupanno,
                 std::map<std::string, std::set<std::string>>& AllFile_BarcodeSet,
                 std::vector<std::unique_ptr<std::ofstream>>& IsoformFilePath,
                 std::vector<std::mutex>& IsoformMutexes,
-                std::unordered_map<std::string, std::array<int,2>>& singleexonanno) {
-    // 识别和定量;
+                std::unordered_map<std::string, std::array<int,2>>& singleexonanno,
+                int& RC_threshold) {
+    
     std::string chrchr = groupinform.chrName;
     std::string groupnumber = groupinform.GroupIndex;
     DistanceInform DMatrix_GraphNode = get_distance_matrix(groupanno.Group_Annotations, 
@@ -3737,9 +3729,7 @@ void DetectQuant(GroupAnnotation& groupanno,
         groupanno.Group_Annotations.clear();
         groupanno.Group_GeneSet.clear();
         if (FileNo > 1) {
-            // 多于一个sam文件;
             for (int k = 0; k < FileNo; k++) {
-                // 数量
                 Solvent_sc SpliceChainSolvent = get_Solvent_FsmIsmHigh(splicechainclass, k, groupinform);
                 std::unordered_map<std::string, std::unordered_map<std::string, double>> File_k_TranscriptNumber = get_transcript_init(
                     NodeResults, DMatrix_GraphNode, chrchr, groupnumber, k, groupinform.GroupReadFiles, groupinform.GroupReadBarcodes,
@@ -3749,7 +3739,6 @@ void DetectQuant(GroupAnnotation& groupanno,
                                                                     SpliceChainSolvent.File_ISM,
                                                                     SpliceChainSolvent.File_HighConClusters,
                                                                     groupinform.GroupReadBarcodes);
-                // 对每一个barcode量化;
                 for (const auto& ThisBarcode:AllFile_BarcodeSet[std::to_string(k)]) {
 
                     FileBarcodeFalseNode This_File_False_Node = get_File_Barcode_False_node(NodeResults.FalseNodeSet,
@@ -3775,8 +3764,7 @@ void DetectQuant(GroupAnnotation& groupanno,
                     ThisFileBarcodeSpliceChain.Barcode_ISM[ThisBarcode].clear();
                     ThisFileBarcodeSpliceChain.Barcode_HighConClusters[ThisBarcode].clear();
                 }
-
-                write_transcript_file(File_k_TranscriptNumber, Finally_Annotations, AllFile_BarcodeSet[std::to_string(k)], k, IsoformFilePath, IsoformMutexes);
+                write_transcript_file(File_k_TranscriptNumber, Finally_Annotations, AllFile_BarcodeSet[std::to_string(k)], k, IsoformFilePath, IsoformMutexes, RC_threshold);
             }
             std::cout << "end one group!" << std::endl;
 
@@ -3811,11 +3799,11 @@ void DetectQuant(GroupAnnotation& groupanno,
                                                             groupinform.GroupReadBarcodes,
                                                             traceFilePath);
 
-                EM_Alg_Barcodes(File_k_TranscriptNumber, InitFirefly, ThisBarcode); // 为了得到所有样本的结果; 
+                EM_Alg_Barcodes(File_k_TranscriptNumber, InitFirefly, ThisBarcode);
                 // std::cout << "(=^_^=) Group " << groupinform.GroupIndex << " reads numbers " << groupinform.GroupReadSjs.size()  << " completed quantification! (=^_^=) " << std::endl;               
             }
             int fileIndex = 0;
-            write_transcript_file(File_k_TranscriptNumber, Finally_Annotations, AllFile_BarcodeSet["0"], fileIndex, IsoformFilePath, IsoformMutexes); 
+            write_transcript_file(File_k_TranscriptNumber, Finally_Annotations, AllFile_BarcodeSet["0"], fileIndex, IsoformFilePath, IsoformMutexes, RC_threshold); 
         }
     }
 }
@@ -3830,7 +3818,7 @@ void processGroup(std::streampos& start, std::streampos& end,
                   std::vector<std::mutex>& isoformMutexes,
                   int& fileno, std::string& outputPath,
                   std::map<std::string, std::set<std::string>>& filebarcodeSet,
-                  int& singleEdge) {
+                  int& singleEdge, int& ReadCount_threshold) {
 
     GroupInformation group_information = knowGroupInformation(start, end, sam_file_path, Sj_supportReadNumber);
     std::string chrchr = group_information.chrName;
@@ -3867,7 +3855,7 @@ void processGroup(std::streampos& start, std::streampos& end,
                     GraphDis, gtf_full, gtf_splice, 
                     updatedgtffile, tracefile, fileno,
                     filebarcodeSet, isoformfilePath, isoformMutexes,
-                    single_exon_group_annotation); 
+                    single_exon_group_annotation, ReadCount_threshold); 
     }
     std::cout << group_information.GroupIndex << " is end! reads size is " << group_information.GroupReadSjs.size() << "!"<< std::endl;
 }
@@ -3890,12 +3878,13 @@ int main(int argc, char* argv[])
     int SJDistance = 18;
     int SJ_support_read_number = 2;
     int Graph_distance = 60;
-    int Thread = 8;
+    int Thread = 10;
+    int Read_count = 1;
     int single_exon_edge = 60;
     std::string umi = "U8:Z:";
     std::string barcode = "BC:Z:";
 
-    while ((c = getopt_long(argc, argv, "s:f:g:o:m:j:n:e:d:t:u:b:h", long_options, &option_index)) != -1) {
+    while ((c = getopt_long(argc, argv, "s:f:g:o:m:j:n:e:d:t:u:b:r:h", long_options, &option_index)) != -1) {
         switch (c) {
             case 's':
                 samfile_name = optarg;
@@ -3930,6 +3919,9 @@ int main(int argc, char* argv[])
             case 'b':
                 barcode = std::stoi(optarg);  
                 break;
+            case 'r':
+                Read_count = std::stoi(optarg);   
+                break;            
             case 'h':
                 print_usage(argv[0]);
                 exit(EXIT_FAILURE);              
@@ -3953,17 +3945,18 @@ int main(int argc, char* argv[])
     std::ofstream trace_file(outputFileVec[1], std::ios::app);
 
     std::cout << "*****" << std::endl;
-    std::cout << "SAM file: " << samfile_name << std::endl;
+    std::cout << "Input file: " << samfile_name << std::endl;
     std::cout << "FASTA file: " << fastafile_name << std::endl;
     std::cout << "GTF file: " << gtffile_name << std::endl;
     std::cout << "Output file: " << output_file_name << std::endl;
-    std::cout << "SJDistance: " << SJDistance << std::endl;
-    std::cout << "SJ_support_read_number: " << SJ_support_read_number << std::endl;
-    std::cout << "single_exon_edge : " << single_exon_edge << std::endl;
-    std::cout << "Graph_distance: " << Graph_distance << std::endl;
+    std::cout << "SJ Distance: " << SJDistance << std::endl;
+    std::cout << "SJ support read number: " << SJ_support_read_number << std::endl;
+    std::cout << "Single exon boundary : " << single_exon_edge << std::endl;
+    std::cout << "Graph distance: " << Graph_distance << std::endl;
     std::cout << "Thread: " << Thread << std::endl;
-    std::cout << "UMI_tag: " << umi << std::endl;
-    std::cout << "Barcode_tag: " << barcode << std::endl;
+    std::cout << "UMI tag: " << umi << std::endl;
+    std::cout << "Barcode tag: " << barcode << std::endl;
+    std::cout << "Output min read count: " << Read_count << std::endl;
     std::cout << "*****" << std::endl;
 
     std::unordered_map<std::string, std::string> Fasta = Read_fasta_file(fastafile_name);
@@ -4005,7 +3998,8 @@ int main(int argc, char* argv[])
                 BroCOLIfile.FileNo,
                 std::ref(output_file_name),
                 std::ref(BroCOLIfile.file_barcodeSet),
-                single_exon_edge);
+                single_exon_edge,
+                Read_count);
             }));
     }
     
