@@ -111,7 +111,7 @@ Read_intervals_and_Mlength get_read_intervals(std::string CIGARvalue, std::strin
                 MatchLength = MatchLength + currentNumber;
                 position_end = position_begin;
             } else if (currentChar == 'H') {
-                MatchLength = MatchLength + currentNumber;
+                MatchLength = MatchLength;
                 position_end = position_begin;
             } else if (currentChar == 'P') {
                 MatchLength = MatchLength + currentNumber;
@@ -3927,6 +3927,7 @@ IndicateFire Quantification_initialization_MultiFiles (std::map<std::size_t, std
 std::map<std::string, double> EM_Alg (OutputInformation& FinallyAnnotations, IndicateFire& Indicate_Number, 
              std::ofstream& isoformCountPath, int& rc_threshold) {
     std::map<std::string, double> geneCounts;
+    
     if (Indicate_Number.Indicate_Matrix.rows() != 0 && Indicate_Number.Indicate_Matrix.cols() != 0){
         std::string its_name;
         Eigen::VectorXd P_Col_init0 = Eigen::VectorXd::Constant(

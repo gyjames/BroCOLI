@@ -123,31 +123,25 @@ Read_intervals_and_Mlength get_read_intervals(std::string CIGARvalue, std::strin
                 CIGAR_Interval_Length.ReadIntervals.push_back(each_small_QJ);
 
             } else if (currentChar == 'D') {
-
                 position_end = position_begin + currentNumber;
 
             } else if (currentChar == 'I') {
                 MatchLength = MatchLength + currentNumber;
-  
                 position_end = position_begin;
 
             } else if (currentChar == 'N') {
-
                 position_end = position_begin + currentNumber;
 
             } else if (currentChar == 'S') {
                 MatchLength = MatchLength + currentNumber;
-  
                 position_end = position_begin;
 
             } else if (currentChar == 'H') {
-                MatchLength = MatchLength + currentNumber;
-
+                MatchLength = MatchLength;
                 position_end = position_begin;
 
             } else if (currentChar == 'P') {
                 MatchLength = MatchLength + currentNumber;
- 
                 position_end = position_begin + currentNumber;
 
             } else {
