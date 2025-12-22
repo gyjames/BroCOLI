@@ -38,34 +38,42 @@ std::mutex bigMutex;
 struct Split_Result{
     std::string read_name;
     std::vector<std::string> tokens;
-    int read_length;
+    int read_length = 0;
+    int token_count = 0;
 };
 
 
-Split_Result get_string_split_fast(const std::string& s) {
-    Split_Result r;
-    r.read_length = 0;
+inline void get_string_split_fast(const std::string& s, Split_Result& r) {
+    if (r.tokens.size() < 6) r.tokens.resize(6);
 
+    r.read_length = 0;
+    r.token_count = 0;
+    const char* base = s.data();
+    const size_t n = s.size();
     int field = 0;
     size_t start = 0;
-    size_t i = 0;
 
-    for (; i <= s.size(); ++i) {
-        if (i == s.size() || s[i] == '\t') {
-            const char* p = s.data() + start;
-            size_t len = i - start;
+    for (size_t i = 0; i <= n && field <= 9; ++i) {
+        if (i == n || base[i] == '\t') {
+            const char* p = base + start;
+            const size_t len = i - start;
+
             if (field == 0) {
                 r.read_name.assign(p, len);
-            } else if (field < 7) {
-                r.tokens.emplace_back(p, len);
-            } else if (field == 9) {
-                r.read_length = len; 
+            } 
+            else if (field < 7) {  
+                if (r.token_count < (int)r.tokens.size()) {
+                    r.tokens[r.token_count].assign(p, len);
+                    ++r.token_count;
+                }
+            } 
+            else if (field == 9) {
+                r.read_length = (int)len;
             }
-            field++;
+            ++field;
             start = i + 1;
         }
     }
-    return r;
 }
 
 
@@ -89,30 +97,29 @@ Read_intervals_and_Mlength get_read_intervals_fast(const std::string& CIGARvalue
 
     Read_intervals_and_Mlength out;
     out.ReadMatchLength = 0;
+    out.ReadIntervals.reserve(CIGARvalue.size() / 2 + 1);
 
-    int pos = std::stoi(initpos);
+    int pos = 0; 
+    for (char ch : initpos) pos = pos * 10 + (ch - '0');
+
     int number = 0;
     for (char c : CIGARvalue) {
         if (c >= '0' && c <= '9') {
             number = number * 10 + (c - '0');
         } else {
             switch (c) {
-            case 'M':
-                out.ReadIntervals.push_back({pos, pos + number});
+            case 'M': case '=': case 'X':
+                out.ReadIntervals.emplace_back(std::array<int,2> {pos, pos + number});
                 pos += number;
                 out.ReadMatchLength += number;
                 break;
-            case 'D':
-            case 'N':
+            case 'D': case 'N':
                 pos += number;
                 break;
-            case 'I':
-            case 'S':
+            case 'I': case 'S':
                 out.ReadMatchLength += number;
                 break;
-            case 'H':
-            case 'P':
-                break;
+            case 'H': case 'P': break;
             }
             number = 0;
         }
@@ -123,7 +130,7 @@ Read_intervals_and_Mlength get_read_intervals_fast(const std::string& CIGARvalue
 
 
 int IntervalIntersection(const std::vector<std::array<int,2>>& firstList, const std::vector<std::array<int,2>>& secondList) {
-    std::vector<std::array<int,2>> res; //定义返回的结果;
+    // std::vector<std::array<int,2>> res;
     int result = 0;
     int i = 0;
     int j = 0;
@@ -132,7 +139,7 @@ int IntervalIntersection(const std::vector<std::array<int,2>>& firstList, const 
         int start = std::max(firstList[i][0], secondList[j][0]);
         int end = std::min(firstList[i][1], secondList[j][1]);
         if(start <= end){
-            res.push_back({start, end});
+            // res.push_back({start, end});
             result = result + (end-start+1);       
         }
         if(firstList[i][1] < secondList[j][1]){
@@ -166,7 +173,7 @@ int IntervalMerge(const std::vector<std::array<int,2>>& firstList, const std::ve
     merge(firstList.begin(), firstList.end(), secondList.begin(), secondList.end(), intervals.begin());
     
     sort(intervals.begin(), intervals.end()); //对所有的区间从小到大排序;
-    std::vector<std::array<int,2>> merged; //初始化输出结果;
+    // std::vector<std::array<int,2>> merged; //初始化输出结果;
     int result = 0;
     
     for (int i=0; i<intervals.size();) {  
@@ -176,7 +183,7 @@ int IntervalMerge(const std::vector<std::array<int,2>>& firstList, const std::ve
             right = std::max(right, intervals[i+1][1]);
             i++;
         }
-        merged.push_back({left, right});
+        // merged.push_back({left, right});
         result = result + (right-left+1);
         i++;
     }
@@ -185,9 +192,8 @@ int IntervalMerge(const std::vector<std::array<int,2>>& firstList, const std::ve
 
 
 int findNonOverlappingIntervals(const std::vector<std::array<int, 2>>& intervals1, const std::vector<std::array<int, 2>>& intervals2) {
-    std::vector<std::array<int, 2>> result;
+    // std::vector<std::array<int, 2>> result;
     int finally_number = 0;
-
     for (const auto& interval1 : intervals1) {
         bool hasOverlap = false;
         for (const auto& interval2 : intervals2) {
@@ -198,7 +204,7 @@ int findNonOverlappingIntervals(const std::vector<std::array<int, 2>>& intervals
             }
         }
         if (!hasOverlap) {
-            result.push_back(interval1);
+            // result.push_back(interval1);
             finally_number = finally_number + (interval1[1]-interval1[0]+1);
         }
     }
@@ -213,7 +219,7 @@ int findNonOverlappingIntervals(const std::vector<std::array<int, 2>>& intervals
             }
         }
         if (!hasOverlap) {
-            result.push_back(interval2);
+            // result.push_back(interval2);
             finally_number = finally_number + (interval2[1]-interval2[0]+1);
         }
     }
@@ -225,14 +231,14 @@ std::vector<std::array<int,2>> mergeIntervals(std::vector<std::array<int,2>>& in
     if (intervals.empty()) return {};
     std::sort(intervals.begin(), intervals.end(),
               [](const std::array<int,2>& a, const std::array<int,2>& b) { return a[0] < b[0]; });
-    std::vector<std::array<int,2>> merged;
-    merged.push_back(intervals[0]);
+    std::vector<std::array<int,2>> merged; merged.reserve(intervals.size()); 
+    merged.emplace_back(intervals[0]);   
 
     for (size_t i = 1; i < intervals.size(); ++i) {
         if (intervals[i][0] <= merged.back()[1]) {
             merged.back()[1] = std::max(merged.back()[1], intervals[i][1]);
         } else {
-            merged.push_back(intervals[i]);
+            merged.emplace_back(intervals[i]);
         }
     }
     return merged;
@@ -271,6 +277,7 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
     int early_end_pos = 0;
 
     Split_Result This_Line {};
+    This_Line.tokens.resize(6);
     Read_intervals_and_Mlength CIGAR_interval {};
 
 	while (getline(samfile, line))
@@ -281,11 +288,12 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
         if (line[0] != '@'){
             NewCluster.surveyNum = NewCluster.surveyNum + 1;
             // This_Line = get_string_split(line, '\t');         
-            This_Line = get_string_split_fast(line);  
+            get_string_split_fast(line, This_Line);  
 
             int read_mapq = std::stoi(This_Line.tokens[3]) ;
-            if (read_mapq >= MAPQ) {
-                
+            int Flag = std::stoi(This_Line.tokens[0]);
+
+            if (read_mapq >= MAPQ && ((Flag & 0x900) == 0)) {
                 CIGAR_interval = get_read_intervals_fast(This_Line.tokens[4], This_Line.tokens[2]);
                 if (This_Line.read_length == CIGAR_interval.ReadMatchLength){
 
@@ -336,7 +344,7 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
                     }
                     read_informs[This_Line.read_name] = CIGAR_interval.ReadIntervals;
                     read_len[This_Line.read_name] = This_Line.read_length;
-                    int Flag = std::stoi(This_Line.tokens[0]);
+                    
                     if (Flag & 16) {
                         read_flag[This_Line.read_name] = 0; // -
                     } else {
@@ -370,84 +378,57 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
 
 
 struct SpliceJs {
-
     std::unordered_map<std::string, std::vector<std::array<int,2>>> reads_SJs;
     std::unordered_map<std::string, std::vector<std::array<int,2>>> reads_SJs_left;
     std::unordered_map<std::string, std::vector<std::array<int,2>>> reads_SJs_right;
     std::unordered_map<std::string, std::array<int,2>> reads_begin_end;
     std::unordered_map<std::string, std::array<int,2>> reads_single_exon;
-
 }; 
 
 
 SpliceJs get_reads_allSJs(std::map<std::string, std::vector<std::array<int,2>>>& RCs, int SJD) {
+    SpliceJs out;
 
-    SpliceJs NewSJs = {};
-    std::unordered_map<std::string, std::vector<std::array<int,2>>> AllRead_SJs;
-    std::unordered_map<std::string, std::vector<std::array<int,2>>> AllRead_SJs_left;
-    std::unordered_map<std::string, std::vector<std::array<int,2>>> AllRead_SJs_right;
-    std::unordered_map<std::string, std::array<int,2>> AllRead_begin_end;
-    std::unordered_map<std::string, std::array<int,2>> AllRead_SingleExon;
+    out.reads_SJs.reserve(RCs.size());
+    out.reads_SJs_left.reserve(RCs.size());
+    out.reads_SJs_right.reserve(RCs.size());
+    out.reads_begin_end.reserve(RCs.size());
+    out.reads_single_exon.reserve(RCs.size());
 
-    for (const auto &pair : RCs) {
+    for (const auto& pair : RCs) {
+        const std::string& Rname = pair.first;
+        const auto& RMs = pair.second;
+        if (RMs.size() == 0) continue;
 
-        std::string Rname = pair.first; 
-        std::vector<std::array<int,2>> RMs = pair.second;
-        std::vector<std::array<int,2>> ReadSJs;
-        std::vector<std::array<int,2>> ReadSJs_left;
-        std::vector<std::array<int,2>> ReadSJs_right;
-        std::array<int,2> Read_SingleExon;
-        std::array<int,2> Read_begin_end;
+        std::vector<std::array<int,2>> ReadSJs, ReadSJs_left, ReadSJs_right;
+        ReadSJs.reserve(RMs.size());
+        ReadSJs_left.reserve(RMs.size());
+        ReadSJs_right.reserve(RMs.size());
 
-        for (auto it = RMs.begin(); it!= RMs.end()-1; it++) {
+        std::array<int,2> Read_begin_end{{RMs.front()[0], RMs.back()[1]}};
 
-            if (it == RMs.begin()){
-                Read_begin_end[0] = (*(it))[0];
-            }
-            if (it== RMs.end()-2){
-                Read_begin_end[1] = (*(it+1))[1];
-            }
-            int later = (*(it+1))[0];
-            int former = (*(it))[1];
+        for (size_t idx = 0; idx + 1 < RMs.size(); ++idx) {
+            int former = RMs[idx][1];
+            int later  = RMs[idx + 1][0];
+
             if (later - former > SJD) {
-
-                std::array<int,2> eachSJ;
-                eachSJ[0] = former;
-                eachSJ[1] = later - 1;
-                ReadSJs.push_back(eachSJ);
-
-                std::array<int,2> eachSJ_left;
-                eachSJ_left[0] = (*(it))[0];
-                eachSJ_left[1] = former - 1;
-                ReadSJs_left.push_back(eachSJ_left);
-  
-                std::array<int,2> eachSJ_right;
-                eachSJ_right[0] = later;
-                eachSJ_right[1] = (*(it+1))[1];
-                ReadSJs_right.push_back(eachSJ_right);
+                ReadSJs.emplace_back(std::array<int,2>{{former, later - 1}});
+                ReadSJs_left.emplace_back(std::array<int,2>{{RMs[idx][0], former - 1}});
+                ReadSJs_right.emplace_back(std::array<int,2>{{later, RMs[idx + 1][1]}});
             }
         }
 
-        if (ReadSJs.size() == 0) {
-            Read_SingleExon[0] = (*RMs.begin())[0];
-            Read_SingleExon[1] = (*(RMs.end()-1))[1] - 1;
-            AllRead_SingleExon[Rname] = Read_SingleExon;
+        if (ReadSJs.empty()) {
+            std::array<int,2> single{{RMs.front()[0], RMs.back()[1] - 1}};
+            out.reads_single_exon.emplace(Rname, single);
         } else {
-
-            AllRead_SJs[Rname] = ReadSJs;
-            AllRead_SJs_left[Rname] = ReadSJs_left;
-            AllRead_SJs_right[Rname] = ReadSJs_right;
-            AllRead_begin_end[Rname] = Read_begin_end;
+            out.reads_SJs.emplace(Rname, std::move(ReadSJs));
+            out.reads_SJs_left.emplace(Rname, std::move(ReadSJs_left));
+            out.reads_SJs_right.emplace(Rname, std::move(ReadSJs_right));
+            out.reads_begin_end.emplace(Rname, Read_begin_end);
         }
-
     }
-
-    NewSJs.reads_SJs = AllRead_SJs;
-    NewSJs.reads_SJs_left = AllRead_SJs_left;
-    NewSJs.reads_SJs_right = AllRead_SJs_right;
-    NewSJs.reads_begin_end = AllRead_begin_end;
-    NewSJs.reads_single_exon = AllRead_SingleExon;
-    return NewSJs;
+    return out;
 }
 
 
@@ -2047,7 +2028,8 @@ struct GroupInformation {
     std::unordered_map<std::string, int> GroupReadStrands;
 };
 
-GroupInformation knowGroupInformation(std::streampos& startpos, std::streampos& endpos, const std::string& sam_file_path, const int& Sj_Support_Read_Number) {
+GroupInformation knowGroupInformation(std::streampos& startpos, std::streampos& endpos, 
+                                    const std::string& sam_file_path, const int& Sj_Support_Read_Number) {
     GroupInformation groupinformation;
     std::ifstream FinalSamFile(sam_file_path);
     FinalSamFile.seekg(startpos);
