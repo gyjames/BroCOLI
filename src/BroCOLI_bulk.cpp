@@ -290,15 +290,14 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
         earlyPos = CurrentPos; 
         CurrentPos = samfile.tellg();
 
-        if (line[0] != '@') {
+        if (line[0] != '@'){
             NewCluster.surveyNum = NewCluster.surveyNum + 1;
             // This_Line = get_string_split(line, '\t');         
             get_string_split_fast(line, This_Line);  
 
             int read_mapq = std::stoi(This_Line.tokens[3]) ;
-            int Flag = std::stoi(This_Line.tokens[0]);
-
-            if (read_mapq >= MAPQ && ((Flag & 0x900) == 0)) {
+            if (read_mapq >= MAPQ) {
+                
                 CIGAR_interval = get_read_intervals_fast(This_Line.tokens[4], This_Line.tokens[2]);
                 if (This_Line.read_length == CIGAR_interval.ReadMatchLength){
 
@@ -324,8 +323,10 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
                             NewCluster.SetRef_name = last_chr;
                             NewCluster.surveyNum = NewCluster.surveyNum - 1;
                             break;
-                        } else {
+                        } else{
+
                             if ((read_in_gene_begin_pos - early_end_pos > 0) || (early_begin_pos - read_in_gene_end_pos > 0)){
+
                                 NewCluster.lastPos = earlyPos;
                                 NewCluster.newPos = CurrentPos;
                                 NewCluster.Mymap = read_informs;
@@ -338,6 +339,7 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
                                 break;
 
                             } else {
+
                                 early_begin_pos = (read_in_gene_begin_pos>early_begin_pos)?early_begin_pos:read_in_gene_begin_pos;
                                 early_end_pos = (read_in_gene_end_pos>early_end_pos)?read_in_gene_end_pos:early_end_pos;
                                 last_chr = now_gene;
@@ -346,11 +348,13 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
                     }
                     read_informs[This_Line.read_name] = CIGAR_interval.ReadIntervals;
                     read_len[This_Line.read_name] = This_Line.read_length;
+                    int Flag = std::stoi(This_Line.tokens[0]);
                     if (Flag & 16) {
                         read_flag[This_Line.read_name] = 0; // -
                     } else {
                         read_flag[This_Line.read_name] = 1; // +
                     }
+
                 } else {
                     NewCluster.mappingdiff = NewCluster.mappingdiff + 1;
                 }
@@ -359,17 +363,18 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
                 NewCluster.mapqless1 = NewCluster.mapqless1 + 1;
             }
         }
+	}
 
-        if (CurrentPos >= EndPos) {
-            NewCluster.lastPos = earlyPos;
-            NewCluster.newPos = CurrentPos;
-            NewCluster.Mymap = read_informs;
-            NewCluster.Mylen = read_len;
-            NewCluster.MyFlag = read_flag;
-            NewCluster.ClusterCoverage[0] = early_begin_pos;
-            NewCluster.ClusterCoverage[1] = early_end_pos;
-            NewCluster.SetRef_name = last_chr;
-        }	
+    if (CurrentPos >= EndPos) {
+
+        NewCluster.lastPos = earlyPos;
+        NewCluster.newPos = CurrentPos;
+        NewCluster.Mymap = read_informs;
+        NewCluster.Mylen = read_len;
+        NewCluster.MyFlag = read_flag;
+        NewCluster.ClusterCoverage[0] = early_begin_pos;
+        NewCluster.ClusterCoverage[1] = early_end_pos;
+        NewCluster.SetRef_name = last_chr;
     }
     return NewCluster;
 }
@@ -1179,7 +1184,7 @@ void processChunk(const std::string& one_sam_file_path, const std::streampos& st
     std::streampos Current_Position = samfile.tellg();
     std::streampos Last_Position = Current_Position;
 
-    // 大缓冲区：1MB 初始容量 (根据内存可调);
+    // 大缓冲区：1MB 初始容量（根据内存可调）
     std::string outBuf;
     outBuf.reserve(10 * 1024 * 1024);  // 10 MB
     const std::size_t FLUSH_THRESHOLD = 10 * 1024 * 1024;  // 缓冲区达到 10MB 就写入磁盘
@@ -1187,18 +1192,12 @@ void processChunk(const std::string& one_sam_file_path, const std::streampos& st
     while (Current_Position < end) {
         Group_index++;
         each_cluster_informs = get_each_cluster_reads(samfile, Last_Position, end, mapq);
-        
-        // {
-        //     std::unique_lock<std::mutex> lock(updatedGtfMutex);
-        //     File1_Iso = File1_Iso + each_cluster_informs.Mylen.size();
-        // }
-
         chrchr = each_cluster_informs.SetRef_name;
         Last_Position = each_cluster_informs.lastPos;
         Current_Position = each_cluster_informs.newPos;
         each_read_SJs_informs = get_reads_allSJs(each_cluster_informs.Mymap, SJ_Distance);
 
-        // 缓存常用引用, 减少map查找; 
+        // 缓存常用引用，减少 map 查找
         auto &reads_SJs = each_read_SJs_informs.reads_SJs;
         auto &reads_begin_end = each_read_SJs_informs.reads_begin_end;
         auto &reads_SJs_left = each_read_SJs_informs.reads_SJs_left;
@@ -1209,7 +1208,7 @@ void processChunk(const std::string& one_sam_file_path, const std::streampos& st
         auto &cluster_MyFlag = each_cluster_informs.MyFlag;
         const std::array<int,2> &clusterCoverage = each_cluster_informs.ClusterCoverage;
 
-        // 遍历多外显子 reads (含SJ);
+        // 遍历多外显子 reads（含 SJ）
         for (const auto& eachRead : reads_SJs) {
             const std::string &read_id = eachRead.first;
             // 尽量用 find 一次取得 Mylen / MyFlag，避免用 operator[]（可能插入）
@@ -1288,7 +1287,7 @@ void processChunk(const std::string& one_sam_file_path, const std::streampos& st
             if (outBuf.size() >= FLUSH_THRESHOLD) {
                 ReadInform.write(outBuf.data(), static_cast<std::streamsize>(outBuf.size()));
                 outBuf.clear();
-            }   
+            }
         }
 
         // single exon reads
@@ -1799,11 +1798,14 @@ std::unordered_map<std::string, std::map<std::array<int,2>, std::map<int, std::a
 }
 
 
-FileSplit thread_all_read_sam_files(const std::string& sam_file_path, std::vector<std::string>& samfilevec,
-                                    const int& numThreads, const std::string& outputPath, 
-                                    const int& SJDistance, std::unordered_map<std::string, std::string>& fasta_ref,
+FileSplit thread_all_read_sam_files(const std::string& sam_file_path, 
+                                    std::vector<std::string>& samfilevec,
+                                    const int& numThreads, 
+                                    const std::string& outputPath, 
+                                    const int& SJDistance, 
+                                    std::unordered_map<std::string, std::string>& fasta_ref,
                                     const int& MAPQ) {
-    std::vector<std::string> sam_file_vec; sam_file_vec.reserve(samfilevec.size());
+    std::vector<std::string> sam_file_vec;
     if (samfilevec.size() == 1) {
         sam_file_vec.push_back(sam_file_path);
     } else {
@@ -1822,7 +1824,7 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path, std::vecto
     std::map<int, std::map<std::array<int,2>, std::array<std::streampos,2>>> File_group_pointer;
     std::vector<std::streampos> startposVec;
     std::vector<std::streampos> endposVec;
-    if (!sam_file_vec.empty()) {
+    if (sam_file_vec.size() != 0) {
 
         ThreadPool Bigfilepool(numThreads);
         std::vector<std::future<void>> myJobs;
@@ -1859,7 +1861,6 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path, std::vecto
             for (int i = 0; i < numThreads; ++i) {
                 std::streampos startPos = i * chunkSize;
                 std::streampos endPos = (i == numThreads - 1) ? (fileSize) : static_cast<std::streampos>((i + 1) * chunkSize);
-                // std::cerr << "startPos:" << startPos << "  endPos:" << endPos << " 八戒\n";
 
                 if (i > 0) {
                     startPos = findNextLineStart(one_sam, startPos);
@@ -1869,11 +1870,6 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path, std::vecto
             }
             one_sam.close();
   
-            // for (int uu = 0; uu < startposVec.size(); uu++) {
-            //     std::cerr << startposVec[uu] << " " << endposVec[uu] << " " << std::endl;
-            // }
-            // std::cerr << std::endl;
-
             myJobs.clear();
             for (int i = 0; i < numThreads; ++i) {
                 myJobs.emplace_back(Bigfilepool.enqueue([&,i]() {
@@ -1900,7 +1896,6 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path, std::vecto
             if (sam_file_vec.size() > 1) {
                 File_chr_coverage[samFileNumber] = BigBang.chr_coverage;
                 File_group_pointer[samFileNumber] = BigBang.coverage2pos;
-
             }
 
         }
@@ -4999,87 +4994,88 @@ void get_filter_Low(std::unordered_map<std::size_t, std::vector<std::string>>& L
     auto& annoMap = FinallyAnnotations.Transcript_Annotations;
     auto& transcript2gene = FinallyAnnotations.transcript2gene;
 
-    std::vector<std::array<int,2>> ThisSj;
-    std::vector<std::array<int,2>> AnnoSj;
-    std::vector<std::string> TempTx;
-    std::string geneName, TxTxName;
+    std::string geneName;
+    // std::vector<std::array<int,2>> ThisSj;
+    // std::vector<std::array<int,2>> AnnoSj;
+    // std::vector<std::string> TempTx;
+    // std::string TxTxName;
 
-    for (const auto& EachLow:LowClusters) {
-        auto it_tx = tx2sj.find(EachLow.second[0]);
-        if (it_tx == tx2sj.end()) continue;
-        const auto& ThisSjRef = it_tx->second;
+    // for (const auto& EachLow:LowClusters) {
+    //     auto it_tx = tx2sj.find(EachLow.second[0]);
+    //     if (it_tx == tx2sj.end()) continue;
+    //     const auto& ThisSjRef = it_tx->second;
 
-        ThisSj = tx2sj[EachLow.second[0]];
-        TempTx.clear();
+    //     ThisSj = tx2sj[EachLow.second[0]];
+    //     TempTx.clear();
 
-        for (auto& EachAnno:annoMap) {
-            // novel的才判定;
-            const std::string& annoName = EachAnno.first;
-            if (annoName.find('|') != std::string::npos) continue;
-            const auto& AnnoSjRef = EachAnno.second.first;
-            int Sect = IntervalIntersection(ThisSjRef, AnnoSjRef);
-            if (Sect <= 0) continue;
-            int Distance = IntervalMerge(ThisSjRef, AnnoSjRef) - Sect - findNonOverlappingIntervals(ThisSjRef, AnnoSjRef);
-            if (Distance < 60 && Distance > 0) {
-                TempTx.push_back(annoName);
-            }
-        }
-        // 每个cluster循环一圈;
-        if (TempTx.empty()) continue;
-        const size_t clusterSize = EachLow.second.size();
-        double TempCount = 0.0;
+    //     for (auto& EachAnno:annoMap) {
+    //         // novel的才判定;
+    //         const std::string& annoName = EachAnno.first;
+    //         if (annoName.find('|') != std::string::npos) continue;
+    //         const auto& AnnoSjRef = EachAnno.second.first;
+    //         int Sect = IntervalIntersection(ThisSjRef, AnnoSjRef);
+    //         if (Sect <= 0) continue;
+    //         int Distance = IntervalMerge(ThisSjRef, AnnoSjRef) - Sect - findNonOverlappingIntervals(ThisSjRef, AnnoSjRef);
+    //         if (Distance < 60 && Distance > 0) {
+    //             TempTx.push_back(annoName);
+    //         }
+    //     }
+    //     // 每个cluster循环一圈;
+    //     if (TempTx.empty()) continue;
+    //     const size_t clusterSize = EachLow.second.size();
+    //     double TempCount = 0.0;
 
-        std::string buffer;
-        buffer.reserve(EachLow.second.size() * 80);
-        if (TempTx.size() == 1) {
-            auto& anno = annoMap[TempTx[0]];
-            anno.second += clusterSize;
-            geneName = transcript2gene[TempTx[0]];
-            for (const auto& eachR:EachLow.second) {
-                buffer += eachR;
-                buffer += '\t';
-                buffer += "simnovel\t";
-                buffer += TempTx[0];
-                buffer += '\t';
-                buffer += geneName;
-                buffer += '\t';
-                buffer += groupreadfiles.at(eachR);
-                buffer += '\n';
-            } 
-            {
-                std::unique_lock<std::mutex> lock(traceMutex);
-                Trace << buffer;
-            }
-        } else {
-            for (const auto& TxTx:TempTx) {
-                auto it = annoMap.find(TxTx);
-                if (it != annoMap.end() && it->second.second > TempCount) {
-                    TxTxName = TxTx;
-                    TempCount = it->second.second;
-                }
-            }
-            if (TempCount > 0) {
-                auto& anno = annoMap[TxTxName];
-                anno.second += clusterSize;
-                geneName = transcript2gene[TxTxName];
-                for (const auto& eachR:EachLow.second) {
-                    buffer += eachR;
-                    buffer += '\t';
-                    buffer += "simnovel\t";
-                    buffer += TempTx[0];
-                    buffer += '\t';
-                    buffer += geneName;
-                    buffer += '\t';
-                    buffer += groupreadfiles.at(eachR);
-                    buffer += '\n';
-                } 
-                {
-                    std::unique_lock<std::mutex> lock(traceMutex);
-                    Trace << buffer;
-                }
-            }
-        }
-    }  
+    //     std::string buffer;
+    //     buffer.reserve(EachLow.second.size() * 80);
+    //     if (TempTx.size() == 1) {
+    //         auto& anno = annoMap[TempTx[0]];
+    //         anno.second += clusterSize;
+    //         geneName = transcript2gene[TempTx[0]];
+    //         for (const auto& eachR:EachLow.second) {
+    //             buffer += eachR;
+    //             buffer += '\t';
+    //             buffer += "simnovel\t";
+    //             buffer += TempTx[0];
+    //             buffer += '\t';
+    //             buffer += geneName;
+    //             buffer += '\t';
+    //             buffer += groupreadfiles.at(eachR);
+    //             buffer += '\n';
+    //         } 
+    //         {
+    //             std::unique_lock<std::mutex> lock(traceMutex);
+    //             Trace << buffer;
+    //         }
+    //     } else {
+    //         for (const auto& TxTx:TempTx) {
+    //             auto it = annoMap.find(TxTx);
+    //             if (it != annoMap.end() && it->second.second > TempCount) {
+    //                 TxTxName = TxTx;
+    //                 TempCount = it->second.second;
+    //             }
+    //         }
+    //         if (TempCount > 0) {
+    //             auto& anno = annoMap[TxTxName];
+    //             anno.second += clusterSize;
+    //             geneName = transcript2gene[TxTxName];
+    //             for (const auto& eachR:EachLow.second) {
+    //                 buffer += eachR;
+    //                 buffer += '\t';
+    //                 buffer += "simnovel\t";
+    //                 buffer += TempTx[0];
+    //                 buffer += '\t';
+    //                 buffer += geneName;
+    //                 buffer += '\t';
+    //                 buffer += groupreadfiles.at(eachR);
+    //                 buffer += '\n';
+    //             } 
+    //             {
+    //                 std::unique_lock<std::mutex> lock(traceMutex);
+    //                 Trace << buffer;
+    //             }
+    //         }
+    //     }
+    // }  
 
     for (const auto& eachAnno:annoMap) {
         const std::string& name = eachAnno.first;
