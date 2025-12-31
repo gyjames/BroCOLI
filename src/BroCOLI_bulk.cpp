@@ -296,7 +296,9 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
             get_string_split_fast(line, This_Line);  
 
             int read_mapq = std::stoi(This_Line.tokens[3]) ;
-            if (read_mapq >= MAPQ) {
+            int Flag = std::stoi(This_Line.tokens[0]);
+
+            if (read_mapq >= MAPQ and (Flag & 0x900)==0) {
                 
                 CIGAR_interval = get_read_intervals_fast(This_Line.tokens[4], This_Line.tokens[2]);
                 if (This_Line.read_length == CIGAR_interval.ReadMatchLength){
@@ -348,7 +350,7 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
                     }
                     read_informs[This_Line.read_name] = CIGAR_interval.ReadIntervals;
                     read_len[This_Line.read_name] = This_Line.read_length;
-                    int Flag = std::stoi(This_Line.tokens[0]);
+                    
                     if (Flag & 16) {
                         read_flag[This_Line.read_name] = 0; // -
                     } else {
@@ -1050,6 +1052,7 @@ static inline std::string trim_copy(std::string x) {
 std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, const std::string& output_path){
     std::vector<std::string> sam_file_vector;
     struct stat sam_stat;
+
     if (stat(sam_file_path.c_str(), &sam_stat) != 0) {
         std::cerr << "* Not a valid file or folder! * " << sam_file_path << " : " << std::strerror(errno) << "\n";
         return sam_file_vector;
@@ -1167,7 +1170,6 @@ void processChunk(const std::string& one_sam_file_path, const std::streampos& st
     std::string File_name = oss.str();
     std::string ReadInformPath = joinPath(output_path, File_name);
 
-    // 打开输出文件 —— 保持文本模式；我们会用 write() 写整个 buffer
     std::ofstream ReadInform(ReadInformPath.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
     if (!ReadInform.is_open()) {
         std::cerr << "Cannot open output file: " << ReadInformPath << std::endl;
@@ -1429,7 +1431,8 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
     std::map<std::string, std::vector<std::string>> Group_temporary;
     std::array<int,2> this_coverage;
 
-    for (int file_number = 0; file_number < Read_x_vec.size(); file_number++){
+    for (int file_number = 0; file_number < Read_x_vec.size(); file_number++) {
+
         std::string fileName = SmallFilePath + "/" + Read_x_vec[file_number];
         std::ifstream SmallSamFile(fileName);
         earlyGroup = "+";
@@ -1441,7 +1444,6 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
             this_coverage = {std::stoi(This_Line.tokens[2]), std::stoi(This_Line.tokens[3])};
 
             if (thisGroup == earlyGroup) {
-
                 auto it = Group_temporary.find(This_Line.read_name);
                 if (it != Group_temporary.end()){
                     if (std::stoi(This_Line.tokens[6]) > std::stoi(Group_temporary[This_Line.read_name][6])){
@@ -1456,11 +1458,11 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
 
                     if (last_chr == This_Line.tokens[0]) {
 
-                        if (Group_low <= this_coverage[1] && this_coverage[0] <= Group_high){
+                        if (Group_low <= this_coverage[1] && this_coverage[0] <= Group_high) {
 
                             auto it = Group_temporary.find(This_Line.read_name);
                             if (it != Group_temporary.end()){
-                                if (std::stoi(This_Line.tokens[6]) > std::stoi(Group_temporary[This_Line.read_name][6])){
+                                if (std::stoi(This_Line.tokens[6]) > std::stoi(Group_temporary[This_Line.read_name][6])) {
                                     Group_temporary[This_Line.read_name] = This_Line.tokens;
                                 }
                             } else {
@@ -1805,6 +1807,7 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
                                     const int& SJDistance, 
                                     std::unordered_map<std::string, std::string>& fasta_ref,
                                     const int& MAPQ) {
+
     std::vector<std::string> sam_file_vec;
     if (samfilevec.size() == 1) {
         sam_file_vec.push_back(sam_file_path);
@@ -1824,8 +1827,8 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
     std::map<int, std::map<std::array<int,2>, std::array<std::streampos,2>>> File_group_pointer;
     std::vector<std::streampos> startposVec;
     std::vector<std::streampos> endposVec;
+    
     if (sam_file_vec.size() != 0) {
-
         ThreadPool Bigfilepool(numThreads);
         std::vector<std::future<void>> myJobs;
         for (int samFileNumber = 0; samFileNumber < sam_file_vec.size(); ++samFileNumber) {
@@ -1833,7 +1836,7 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
             startposVec.clear();
             endposVec.clear();
 
-            std::cerr << "*** " << "Start processing SAM File " << samFileNumber << " ***" << std::endl;
+            std::cerr << "*** Start processing SAM File " << samFileNumber << " ***" << std::endl;
             std::cerr << "***** " << sam_file_vec[samFileNumber] << " *****" << std::endl;
 
             std::string chunkFilePath = "sam_" + std::to_string(samFileNumber);
@@ -5632,7 +5635,7 @@ int main(int argc, char* argv[])
     unGTF GTF_full = get_gtf_annotation(gtffile_name);
     GTFsj GTF_Splice = get_SJs_SE(GTF_full.GTF_transcript);
     std::vector<std::size_t> Group_idx = sort_indexes_e(BroCOLIfile.group_reads_number);
-    std::cerr << "*** " << "File processing completed! " << "***\n";
+    std::cerr << "*** File processing completed! ***\n";
 
     ThreadPool BroCOLIpool(Thread);
     std::vector<std::future<void>> futures;
