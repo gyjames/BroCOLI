@@ -43,14 +43,14 @@ struct Split_Result{
     std::string read_umi;
 };
 
+
 inline void get_string_split_sc_fast(const std::string& s, char delimiter, 
                                      const std::string& umi_tag_fourth, const std::string& barcode_tag_fourth,
                                      Split_Result& r) {
-    // 1. 重置/初始化结果对象 (复用内存)
+
     r.read_name.clear(); r.read_umi.clear(); r.read_barcode.clear();
     r.read_length = 0; r.token_count = 0;
     
-    // sc 逻辑需要存储第 3-7 列，共 5 个 token
     if (r.tokens.size() < 6) r.tokens.resize(6);
 
     const char* base = s.data();
@@ -63,7 +63,7 @@ inline void get_string_split_sc_fast(const std::string& s, char delimiter,
     const size_t barcode_tag_len = barcode_tag_fourth.size();
 
     for (size_t i = 0; i <= n; ++i) {
-        // 检测分隔符或字符串结尾
+
         if (i == n || base[i] == delimiter) {
             const char* p = base + start;
             const size_t len = i - start;
@@ -73,13 +73,11 @@ inline void get_string_split_sc_fast(const std::string& s, char delimiter,
                 r.read_name.assign(p, len);
 
                 // Flexiplex 逻辑检查: 包含 "-1_"
-                // 使用 string::find 检查刚刚赋值的 read_name
                 if (r.read_name.find("-1_") != std::string::npos) {
                     size_t first_underscore = r.read_name.find('_');
                     if (first_underscore != std::string::npos) {
                         std::string barcode_part = r.read_name.substr(0, first_underscore);
 
-                        // 检查并去除结尾的 "-1"
                         if (barcode_part.size() >= 2 && 
                             barcode_part.compare(barcode_part.size() - 2, 2, "-1") == 0) {
                              barcode_part.resize(barcode_part.size() - 2);
@@ -145,7 +143,6 @@ inline void get_string_split_sc_fast(const std::string& s, char delimiter,
         r.read_name = r.read_barcode + "-" + r.read_umi;
     }
 }
-
 
 
 int IntervalIntersection(std::vector<std::array<int,2>> firstList, std::vector<std::array<int,2>> secondList) {
@@ -4025,95 +4022,15 @@ OutputInformation Write_Detection_Transcript2gtf_AllFiles(std::ofstream& Updated
     return FinalAnnotations;
 }
 
-// void get_transcript_init (
-//     std::unordered_map<std::string, std::unordered_map<std::string, double>>& File_TranscriptNumber,
-//     DetectionResults& noderesults, DistanceInform& Disinform, std::string& chrname, std::string& group_size, 
-//     int& FileNumber, std::unordered_map<std::string, std::string>& groupreadfiles,
-//     std::unordered_map<std::string, std::string>& groupreadbarcodes,
-//     Solvent_sc& filesolvent, std::map<std::string, std::set<std::string>>& allfilebarcodeset) {
-    
-//     std::string fileIndex = std::to_string(FileNumber);
-//     std::string itsname;
-//     std::string itsbarcode;
-//     int novel_count = 0;
-//     std::size_t nameya;
-
-//     for (const auto aaa:noderesults.TrueNodeSet) {
-
-//         if (aaa < Disinform.Index2Anno.size()) {
-
-//             itsname = Disinform.Index2Anno[aaa];
-//             auto is1 = filesolvent.File_FSM.find(itsname);
-
-//             if (is1 != filesolvent.File_FSM.end()) {
-//                 for (const auto& eachBar:allfilebarcodeset[fileIndex]) {
-//                     File_TranscriptNumber[eachBar][itsname] = 0;
-//                 }
-//                 if (filesolvent.File_FSM[itsname].size() > 0) {
-//                     for (const auto& eachRead:filesolvent.File_FSM[itsname]) {
-//                         itsbarcode = groupreadbarcodes[eachRead];
-//                         File_TranscriptNumber[itsbarcode][itsname] = File_TranscriptNumber[itsbarcode][itsname] + 1;
-//                     }
-//                 } else {
-//                     for (const auto& eachBar:allfilebarcodeset[fileIndex]) {
-//                         File_TranscriptNumber[eachBar][itsname] = 0;
-//                     }
-//                 }
-
-//             } else {
-//                 for (const auto& eachBar:allfilebarcodeset[fileIndex]) {
-//                     File_TranscriptNumber[eachBar][itsname] = 0;
-//                 }
-//             }
-
-//         } else {
-//             novel_count = novel_count + 1;
-
-//             itsname = chrname + "-novel-" + group_size + "-" + std::to_string(aaa) + "-" + std::to_string(novel_count);
-//             Disinform.Index2novelname[aaa] = itsname;
-//             nameya = Disinform.Index2hashname[aaa];
-//             auto is1 = filesolvent.File_HighConClusters.find(nameya);
-
-//             if (is1 != filesolvent.File_HighConClusters.end()) {
-//                 for (const auto& eachBar:allfilebarcodeset[fileIndex]) {
-//                     File_TranscriptNumber[eachBar][itsname] = 0;
-//                 }
-//                 if (filesolvent.File_HighConClusters[nameya].size() > 0) {
-//                     for (const auto& eachRead:filesolvent.File_HighConClusters[nameya]) {
-//                         itsbarcode = groupreadbarcodes[eachRead];
-//                         File_TranscriptNumber[itsbarcode][itsname] = File_TranscriptNumber[itsbarcode][itsname] + 1;
-//                     }
-//                 } else {
-//                     for (const auto& eachBar:allfilebarcodeset[fileIndex]) {
-//                         File_TranscriptNumber[eachBar][itsname] = 0;
-//                     }
-//                 }
-//             } else {
-//                 for (const auto& eachBar:allfilebarcodeset[fileIndex]) {
-//                     File_TranscriptNumber[eachBar][itsname] = 0;
-//                 }
-//             }        
-//         }
-//     }
-// }
-
-
 
 void get_transcript_init (
-    std::unordered_map<std::string, std::unordered_map<std::string, double>>& File_TranscriptNumber,
+    std::unordered_map<std::string, std::vector<double>>& File_TranscriptNumber,
     DetectionResults& noderesults, DistanceInform& Disinform, std::string& chrname, std::string& group_size, 
     int& FileNumber, std::unordered_map<std::string, std::string>& groupreadfiles,
     std::unordered_map<std::string, std::string>& groupreadbarcodes,
-    Solvent_sc& filesolvent, std::map<std::string, std::set<std::string>>& allfilebarcodeset) {
+    Solvent_sc& filesolvent, const std::set<std::string>& itBarSet, std::unordered_map<std::string,int>& transcript2ID) {
     
-    // if (noderesults.TrueNodeSet.empty()) return;
     std::string fileIndex = std::to_string(FileNumber);
-
-    auto itBarSet = allfilebarcodeset.find(fileIndex);
-    if (itBarSet == allfilebarcodeset.end()) return;
-    const auto& barset = itBarSet->second;
-
-    std::string itsbarcode;
     int novel_count = 0;
 
     for (const auto aaa:noderesults.TrueNodeSet) {
@@ -4134,12 +4051,6 @@ void get_transcript_init (
             if (it != filesolvent.File_HighConClusters.end()) reads = &it->second;
         }
 
-        for (const auto& bc : barset) {
-            auto itOut = File_TranscriptNumber.find(bc);
-            if (itOut != File_TranscriptNumber.end()) {
-                itOut->second[itsname] = 0.0;
-            }
-        }
         if (!reads || reads->empty()) continue;
 
         for (const auto& eachRead : *reads) {
@@ -4150,9 +4061,10 @@ void get_transcript_init (
             auto itOut = File_TranscriptNumber.find(bc);
             if (itOut == File_TranscriptNumber.end()) continue;
 
-            itOut->second[itsname] += 1.0;
+            auto itIndex = transcript2ID.find(itsname);
+            if (itIndex == transcript2ID.end()) continue;
+            itOut->second[itIndex->second] += 1.0;
         }        
-
     }
 }
 
@@ -4315,23 +4227,19 @@ void Quantification_initialization_Barcodes (std::map<std::size_t, std::vector<s
                                             std::unordered_map<std::string, std::string>& groupreadfiles,
                                             std::unordered_map<std::string, std::string>& groupreadbarcodes,
                                             std::ofstream& Trace, IndicateFire& OutputResults) {
-    OutputResults.Order_Transcript_Name_Vector.clear();
     OutputResults.Indicate_Matrix.resize(0, 0);
     OutputResults.Cluster_Number.resize(0);
 
     Eigen::MatrixXd known_ISM_matrix;
     std::vector<std::array<int,2>> AreadSJs;
     
-    int RowIndex = -1;
-    int ColIndex = -1;
+    int RowIndex = -1; int ColIndex = -1;
     int flag = 0;
 
-    std::vector<std::string> Order_Transcript_Name; Order_Transcript_Name.reserve(FinallyAnnotations.Transcript_Annotations.size());
-    for (const auto& eachTransctipt:FinallyAnnotations.Transcript_Annotations) {
-        Order_Transcript_Name.push_back(eachTransctipt.first);
-    }
+    const auto& Order_Transcript_Name = OutputResults.Order_Transcript_Name_Vector;
+    const int Transcript_Number = Order_Transcript_Name.size();
 
-    Eigen::RowVectorXd EachClusterRowVector(Order_Transcript_Name.size());
+    Eigen::RowVectorXd EachClusterRowVector(Transcript_Number);
     Eigen::VectorXd known_ISM_cluster_numbers;
 
     //ISM的追踪文件;
@@ -4396,7 +4304,7 @@ void Quantification_initialization_Barcodes (std::map<std::size_t, std::vector<s
             if (ism_gtf_name.size() != 0) {
 
                 RowIndex = RowIndex + 1;
-                known_ISM_matrix.conservativeResize(RowIndex+1, Order_Transcript_Name.size());
+                known_ISM_matrix.conservativeResize(RowIndex+1, Transcript_Number);
                 known_ISM_matrix.row(RowIndex) = EachClusterRowVector;
                 known_ISM_cluster_numbers.conservativeResize(RowIndex+1, 1);
                 known_ISM_cluster_numbers(RowIndex, 0) = eachISM.second.size();
@@ -4443,12 +4351,12 @@ void Quantification_initialization_Barcodes (std::map<std::size_t, std::vector<s
     }
 
     std::set<int> MergeFalseSet(falsenodeset.begin(), falsenodeset.end());
-    Eigen::MatrixXd False_novel_candidate_matrix(MergeFalseSet.size(), Order_Transcript_Name.size());
+    Eigen::MatrixXd False_novel_candidate_matrix(MergeFalseSet.size(), Transcript_Number);
 
     std::set<int> FalseNode_NeighborSet;
     std::set<int> FalseNode_TrueSet;
     std::string itsname;
-    Eigen::RowVectorXd FalseNode_RowVector(Order_Transcript_Name.size());
+    Eigen::RowVectorXd FalseNode_RowVector(Transcript_Number);
     RowIndex = -1;
     int countC = 0;
     
@@ -4597,25 +4505,27 @@ void Quantification_initialization_Barcodes (std::map<std::size_t, std::vector<s
             OutputResults.Cluster_Number = False_novel_candidate_cluster_numbers;
         }
     }
-    OutputResults.Order_Transcript_Name_Vector = Order_Transcript_Name;
     return;
 }
 
 
-void EM_Alg_Barcodes(std::unordered_map<std::string, std::unordered_map<std::string, double>>& filetranscriptnumber, 
+void EM_Alg_Barcodes(std::unordered_map<std::string, std::vector<double>>& filetranscriptnumber, 
                         IndicateFire& Indicate_Number, std::unordered_map<std::string, std::string>& tx2ge,
-                        const std::string& Barcode, std::unordered_map<std::string, std::unordered_map<std::string, double>>& filekgenenumber) {
+                        const std::string& Barcode, std::unordered_map<std::string, std::unordered_map<std::string, double>>& filekgenenumber,
+                        std::unordered_map<std::string,int>& transcript2ID) {
     
-    std::vector<double> Order_Transcript_Number; Order_Transcript_Number.reserve(Indicate_Number.Order_Transcript_Name_Vector.size());
+    std::vector<double> Order_Transcript_Number(Indicate_Number.Order_Transcript_Name_Vector.size(), 0.0);
+    auto& current_transcript_map = filetranscriptnumber[Barcode]; 
+    int index = 0;
 
     for (const auto& eachIso:Indicate_Number.Order_Transcript_Name_Vector) {
-        auto it = filetranscriptnumber[Barcode].find(eachIso);
-        if ( it != filetranscriptnumber[Barcode].end()) {
-            Order_Transcript_Number.push_back(it->second);
-        } else {
-            Order_Transcript_Number.push_back(0);
+        auto it = transcript2ID.find(eachIso);
+        if ( it != transcript2ID.end()) {
+            Order_Transcript_Number[index] = current_transcript_map[it->second];
         }
-    }    
+        index++;
+    }
+
     Eigen::VectorXd Order_Transcript_Vector = Eigen::Map<Eigen::VectorXd>(Order_Transcript_Number.data(), Order_Transcript_Number.size());
 
     if (Indicate_Number.Indicate_Matrix.rows() != 0 && Indicate_Number.Indicate_Matrix.cols() != 0) {
@@ -4642,20 +4552,22 @@ void EM_Alg_Barcodes(std::unordered_map<std::string, std::unordered_map<std::str
         } while ((sum_abs_diff > 5e-2) and (CountCyc < 10));
 
         std::string its_name; double em_count;
-        auto& current_transcript_map = filetranscriptnumber[Barcode]; 
+        
         for (int i = 0; i < AnnoN.rows(); i++){
             its_name = Indicate_Number.Order_Transcript_Name_Vector[i];
             em_count = AnnoN(i, 0);
             if (em_count > 0.0) {
-                current_transcript_map[its_name] += em_count;
+                auto it = transcript2ID.find(its_name);
+                if (it != transcript2ID.end()) current_transcript_map[it->second] += em_count;
             }
         }
     }
 
     std::string geneName; std::string second_part;
     filekgenenumber[Barcode] = {};
+    auto& thisGeneBarcode = filekgenenumber[Barcode];
 
-    for (const auto& eachAnno:filetranscriptnumber[Barcode]) {
+    for (const auto& eachAnno:transcript2ID) {
         size_t pos = eachAnno.first.find('|');
         if (pos != std::string::npos) {
             second_part = eachAnno.first.substr(pos + 1);
@@ -4664,15 +4576,14 @@ void EM_Alg_Barcodes(std::unordered_map<std::string, std::unordered_map<std::str
         }
         geneName = tx2ge[eachAnno.first];
         if (geneName != "NA") {
-            auto it = filekgenenumber[Barcode].find(geneName);
-            if (it != filekgenenumber[Barcode].end()) {
-                it->second = it->second + eachAnno.second;
+            auto it = thisGeneBarcode.find(geneName);
+            if (it != thisGeneBarcode.end()) {
+                it->second = it->second + current_transcript_map[eachAnno.second];
             } else {
-                filekgenenumber[Barcode][geneName] = eachAnno.second;
+                thisGeneBarcode[geneName] = current_transcript_map[eachAnno.second];
             }
         }
     } 
-
 }   
 
 // get_filter_Low(ThisFileBarcodeSpliceChain.Barcode_LowConClusters[ThisBarcode], File_k_TranscriptNumber[ThisBarcode], Finally_Annotations.Transcript_Annotations, Finally_Annotations.transcript2gene, groupinform.GroupReadSjs, File_K_GeneNumber[ThisBarcode], gtfexon.GTF_gene2transcript[chrchr]);     
@@ -4748,7 +4659,7 @@ void EM_Alg_Barcodes(std::unordered_map<std::string, std::unordered_map<std::str
 // }
 
 
-void write_transcript_file(std::unordered_map<std::string, std::unordered_map<std::string, double>>& filetranscriptnumber,
+void write_transcript_file(std::unordered_map<std::string, std::vector<double>>& filetranscriptnumber,
                             OutputInformation& FinallyAnnotations, const std::set<std::string>& barcodeset, int& filenumber,
                             std::vector<std::unique_ptr<std::ofstream>>& AllIsoformFilePath,
                             std::vector<std::mutex>& AllIsoformMutexes, int& rc_threshold,
@@ -4757,7 +4668,8 @@ void write_transcript_file(std::unordered_map<std::string, std::unordered_map<st
                             std::unordered_map<std::string, std::string>& GroupReadFiles,
                             std::ofstream& Updated_Files, std::string& chrname,
                             std::unordered_map<std::string, std::vector<std::array<int,2>>>& rawgtf_isoform,
-                            std::unordered_map<std::string, std::string>& rawgtf_strand) {
+                            std::unordered_map<std::string, std::string>& rawgtf_strand,
+                            std::unordered_map<std::string,int>& transcript2ID) {
     
     std::string FILENUMBER = std::to_string(filenumber);
     std::unordered_map<std::string, std::unordered_map<std::string, double>> transcriptbarcodenumber;
@@ -4769,11 +4681,11 @@ void write_transcript_file(std::unordered_map<std::string, std::unordered_map<st
 
         for (const auto& barcode_pair : filetranscriptnumber) {
             const std::string& barcode = barcode_pair.first;
-            const auto& transcripts = barcode_pair.second;
+            const auto& barcodeCount = barcode_pair.second;
             
-            for (const auto& tx_pair : transcripts) {
+            for (const auto& tx_pair : transcript2ID) {
                 const std::string& tx_name = tx_pair.first;
-                double count = tx_pair.second;
+                double count = barcodeCount[tx_pair.second];
                 transcriptbarcodenumber[tx_name][barcode] = count; 
             }
         }
@@ -4941,8 +4853,8 @@ void write_gene_file(std::unordered_map<std::string, std::unordered_map<std::str
         for (double c : vec) {
             if (c < rc_threshold) c = 0;
             out += '\t';
-            // out += std::to_string((int)(c+0.5)); // ★取整了, 结果加和有点区别;
-            out += std::to_string(c);
+            out += std::to_string((int)(c+0.5)); // ★取整了, 结果加和有点区别;
+            // out += std::to_string(c);
         }
         out += '\n';
     }
@@ -4992,30 +4904,37 @@ void DetectQuant(GroupAnnotation& groupanno, SpliceChainClass& splicechainclass,
                                             gtfexon.GTF_gene_strand[chrchr]); 
     splicechainclass.HighStrand.clear();
 
+    const size_t T = Finally_Annotations.Transcript_Annotations.size();
+    std::unordered_map<std::string, int> transcript_to_id; transcript_to_id.reserve(T);
+    int idx = 0;
+    for(const auto& t : Finally_Annotations.Transcript_Annotations) {
+        transcript_to_id[t.first] = idx++;
+    }
+
     if (FileNo > 1) {
 
-        std::unordered_map<std::string, std::unordered_map<std::string, double>> File_k_TranscriptNumber;
+        std::unordered_map<std::string, std::vector<double>> File_k_TranscriptNumber;
         std::unordered_map<std::string, std::unordered_map<std::string, double>> File_K_GeneNumber;
         FileBarcodeFalseNode This_File_False_Node; This_File_False_Node.FasleNode2Count.reserve(20);
-        IndicateFire InitFirefly;
+        IndicateFire InitFirefly; InitFirefly.Order_Transcript_Name_Vector.reserve(T);
+        for(const auto& t : Finally_Annotations.Transcript_Annotations) {
+            InitFirefly.Order_Transcript_Name_Vector.push_back(t.first);
+        }
 
         for (int k = 0; k < FileNo; k++) {
             File_k_TranscriptNumber.clear(); File_K_GeneNumber.clear();
             const std::string FileStringK = std::to_string(k);
             const auto& ALLBarcode = AllFile_BarcodeSet[FileStringK];
-            const size_t T = Finally_Annotations.Transcript_Annotations.size();
             File_k_TranscriptNumber.reserve(ALLBarcode.size());
             for (const auto& bc : ALLBarcode) {
-                auto ret = File_k_TranscriptNumber.emplace(bc, std::unordered_map<std::string,double>{});
-                auto it = ret.first;
-                it->second.reserve(T);
+                File_k_TranscriptNumber.emplace(bc, std::vector<double>(T, 0.0));
             }         
 
             if (!Finally_Annotations.Transcript_Annotations.empty()) {
                 Solvent_sc SpliceChainSolvent = get_Solvent_FsmIsmHigh(splicechainclass, k, groupinform);
                 get_transcript_init(File_k_TranscriptNumber, NodeResults, DMatrix_GraphNode, chrchr, groupnumber, k, 
                                     groupinform.GroupReadFiles, groupinform.GroupReadBarcodes,
-                                    SpliceChainSolvent, AllFile_BarcodeSet);
+                                    SpliceChainSolvent, ALLBarcode, transcript_to_id);
                 
                 Barcode_sc ThisFileBarcodeSpliceChain = get_Barcode_FsmIsmHigh(SpliceChainSolvent.File_FSM,
                                                                     SpliceChainSolvent.File_ISM,
@@ -5024,9 +4943,6 @@ void DetectQuant(GroupAnnotation& groupanno, SpliceChainClass& splicechainclass,
                                                                     groupinform.GroupReadBarcodes);
 
                 for (const auto& ThisBarcode:ALLBarcode) {
-                    This_File_False_Node.FasleNode2Count.clear(); This_File_False_Node.ThisFlaseNode.clear();
-                    InitFirefly.Order_Transcript_Name_Vector.clear(); InitFirefly.Indicate_Matrix.resize(0, 0);
-                    InitFirefly.Cluster_Number.resize(0);
                     get_File_Barcode_False_node(NodeResults.FalseNodeSet,
                                                 DMatrix_GraphNode.Index2hashname,
                                                 ThisFileBarcodeSpliceChain.Barcode_HighConClusters,
@@ -5043,13 +4959,13 @@ void DetectQuant(GroupAnnotation& groupanno, SpliceChainClass& splicechainclass,
                                                 groupinform.GroupReadBarcodes,
                                                 traceFilePath, InitFirefly);
 
-                    EM_Alg_Barcodes(File_k_TranscriptNumber, InitFirefly, Finally_Annotations.transcript2gene, ThisBarcode, File_K_GeneNumber);                                       
+                    EM_Alg_Barcodes(File_k_TranscriptNumber, InitFirefly, Finally_Annotations.transcript2gene, ThisBarcode, File_K_GeneNumber, transcript_to_id);                                       
                 }
             }
             write_transcript_file(File_k_TranscriptNumber, Finally_Annotations, ALLBarcode, 
                                 k, IsoformFilePath, IsoformMutexes, RC_threshold,
                                 groupSeReads.Transcript_with_SE_reads, groupinform.GroupReadBarcodes, groupinform.GroupReadFiles,
-                                gtfFilePath, chrchr, gtfexon.GTF_transcript[chrchr], gtfexon.GTF_transcript_strand[chrchr]);
+                                gtfFilePath, chrchr, gtfexon.GTF_transcript[chrchr], gtfexon.GTF_transcript_strand[chrchr], transcript_to_id);
 
             write_gene_file(File_K_GeneNumber, groupSeReads.file_SE_reads_gene_number[k], 
                             groupinform.GroupReadBarcodes, ALLBarcode, k, 
@@ -5059,13 +4975,10 @@ void DetectQuant(GroupAnnotation& groupanno, SpliceChainClass& splicechainclass,
     } else {
         int k = 0;
         const auto& ALLBarcode = AllFile_BarcodeSet["0"];
-        const size_t T = Finally_Annotations.Transcript_Annotations.size();
-        std::unordered_map<std::string, std::unordered_map<std::string, double>> File_k_TranscriptNumber;
+        std::unordered_map<std::string, std::vector<double>> File_k_TranscriptNumber;
         File_k_TranscriptNumber.reserve(ALLBarcode.size());
         for (const auto& bc : ALLBarcode) {
-            auto ret = File_k_TranscriptNumber.emplace(bc, std::unordered_map<std::string,double>{});
-            auto it = ret.first;
-            it->second.reserve(T);
+            File_k_TranscriptNumber.emplace(bc, std::vector<double>(T, 0.0));
         }
         std::unordered_map<std::string, std::unordered_map<std::string, double>> File_K_GeneNumber;
 
@@ -5073,7 +4986,7 @@ void DetectQuant(GroupAnnotation& groupanno, SpliceChainClass& splicechainclass,
             Solvent_sc SpliceChainSolvent = get_Solvent_FsmIsmHigh(splicechainclass, k, groupinform);
             get_transcript_init(File_k_TranscriptNumber, NodeResults, DMatrix_GraphNode, chrchr, groupnumber, k, 
                                 groupinform.GroupReadFiles, groupinform.GroupReadBarcodes,
-                                SpliceChainSolvent, AllFile_BarcodeSet);
+                                SpliceChainSolvent, ALLBarcode, transcript_to_id);
 
             Barcode_sc ThisFileBarcodeSpliceChain = get_Barcode_FsmIsmHigh(SpliceChainSolvent.File_FSM,
                                                                 SpliceChainSolvent.File_ISM,
@@ -5082,13 +4995,17 @@ void DetectQuant(GroupAnnotation& groupanno, SpliceChainClass& splicechainclass,
                                                                 groupinform.GroupReadBarcodes);
 
             FileBarcodeFalseNode This_File_False_Node; This_File_False_Node.FasleNode2Count.reserve(20);
-            IndicateFire InitFirefly;
+            IndicateFire InitFirefly; InitFirefly.Order_Transcript_Name_Vector.reserve(T);
+            for(const auto& t : Finally_Annotations.Transcript_Annotations) {
+                InitFirefly.Order_Transcript_Name_Vector.push_back(t.first);
+            }
             
             for (const auto& ThisBarcode:ALLBarcode) {
                 get_File_Barcode_False_node(NodeResults.FalseNodeSet,
                                             DMatrix_GraphNode.Index2hashname,
                                             ThisFileBarcodeSpliceChain.Barcode_HighConClusters,
                                             ThisBarcode, This_File_False_Node); 
+
                 Quantification_initialization_Barcodes(ThisFileBarcodeSpliceChain.Barcode_ISM[ThisBarcode], 
                                                         Finally_Annotations, NodeResults.TrueNodeSet,
                                                         This_File_False_Node.ThisFlaseNode, 
@@ -5100,14 +5017,14 @@ void DetectQuant(GroupAnnotation& groupanno, SpliceChainClass& splicechainclass,
                                                         groupinform.GroupReadBarcodes,
                                                         traceFilePath, InitFirefly);
 
-                EM_Alg_Barcodes(File_k_TranscriptNumber, InitFirefly, Finally_Annotations.transcript2gene, ThisBarcode, File_K_GeneNumber);
+                EM_Alg_Barcodes(File_k_TranscriptNumber, InitFirefly, Finally_Annotations.transcript2gene, ThisBarcode, File_K_GeneNumber, transcript_to_id);
             }
         }
 
         write_transcript_file(File_k_TranscriptNumber, Finally_Annotations, ALLBarcode, 
                             k, IsoformFilePath, IsoformMutexes, RC_threshold,
                             groupSeReads.Transcript_with_SE_reads, groupinform.GroupReadBarcodes, groupinform.GroupReadFiles,
-                            gtfFilePath, chrchr, gtfexon.GTF_transcript[chrchr], gtfexon.GTF_transcript_strand[chrchr]);
+                            gtfFilePath, chrchr, gtfexon.GTF_transcript[chrchr], gtfexon.GTF_transcript_strand[chrchr], transcript_to_id);
 
         write_gene_file(File_K_GeneNumber, groupSeReads.file_SE_reads_gene_number[k], groupinform.GroupReadBarcodes, 
                         ALLBarcode, k, GeneFilePath, GeneMutexes, RC_threshold);
