@@ -72,8 +72,8 @@ inline void get_string_split_sc_fast(const std::string& s, char delimiter,
             if (field_idx == 0) {
                 r.read_name.assign(p, len);
 
-                // Flexiplex 逻辑检查: 包含 "-1_"
-                if (r.read_name.find("-1_") != std::string::npos) {
+                // Flexiplex 逻辑检查: 包含 "#"
+                if (r.read_name.find("#") != std::string::npos) {
                     size_t first_underscore = r.read_name.find('_');
                     if (first_underscore != std::string::npos) {
                         std::string barcode_part = r.read_name.substr(0, first_underscore);
