@@ -17,7 +17,7 @@ find_package(Threads REQUIRED)
 include_directories(${CMAKE_SOURCE_DIR}/src)
 
 # 创建可执行文件
-add_executable(BroCOLI_sc src/BroCOLI_sc.cpp)
+add_executable(BroCOLI_sc src/BroCOLI_sc.cpp src/edlib.cpp)
 target_link_libraries(BroCOLI_sc Threads::Threads)
 
 # 创建可执行文件
