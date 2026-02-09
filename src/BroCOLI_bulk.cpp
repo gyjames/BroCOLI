@@ -268,7 +268,7 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
     std::map<std::string, int> read_len;
     std::map<std::string, int> read_flag; // 1 + ; 0 -
 
-    std::string line;
+    std::string line; line.reserve(4096);
     std::string now_gene;
     std::string last_chr;
 
@@ -283,12 +283,12 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
     This_Line.tokens.resize(6);
     Read_intervals_and_Mlength CIGAR_interval {};
 
-	while (getline(samfile, line))
-	{
+	while (getline(samfile, line)) {
+
         earlyPos = CurrentPos; 
         CurrentPos = samfile.tellg();
 
-        if (line[0] != '@'){
+        if (line[0] != '@') {
             NewCluster.surveyNum = NewCluster.surveyNum + 1;
             get_string_split_fast(line, This_Line); // This_Line = get_string_split(line, '\t');
 
@@ -338,7 +338,6 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
                                 break;
 
                             } else {
-
                                 early_begin_pos = (read_in_gene_begin_pos>early_begin_pos)?early_begin_pos:read_in_gene_begin_pos;
                                 early_end_pos = (read_in_gene_end_pos>early_end_pos)?read_in_gene_end_pos:early_end_pos;
                                 last_chr = now_gene;
@@ -364,17 +363,21 @@ Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos Cur
         }
 	}
 
-    if (CurrentPos >= EndPos) {
-
-        NewCluster.lastPos = earlyPos;
+    NewCluster.lastPos = earlyPos;
+    if (samfile.eof() || CurrentPos >= EndPos) {
+        NewCluster.newPos = EndPos;
+    } else if (CurrentPos == earlyPos) {  // 位置没前进
+        NewCluster.newPos = EndPos;
+    } else {
         NewCluster.newPos = CurrentPos;
-        NewCluster.Mymap = read_informs;
-        NewCluster.Mylen = read_len;
-        NewCluster.MyFlag = read_flag;
-        NewCluster.ClusterCoverage[0] = early_begin_pos;
-        NewCluster.ClusterCoverage[1] = early_end_pos;
-        NewCluster.SetRef_name = last_chr;
     }
+    NewCluster.Mymap = read_informs;
+    NewCluster.Mylen = read_len;
+    NewCluster.MyFlag = read_flag;
+    NewCluster.ClusterCoverage[0] = early_begin_pos;
+    NewCluster.ClusterCoverage[1] = early_end_pos;
+    NewCluster.SetRef_name = last_chr;    
+
     return NewCluster;
 }
 
@@ -459,7 +462,7 @@ unGTF get_gtf_annotation(std::string& GTFFile_name) {
 
     if (!GTFFile_name.empty()) {
 
-        std::cerr << "***** Now open the gtf file: " << GTFFile_name << "! *****" << std::endl;        
+        std::cout << "***** Now open the gtf file: " << GTFFile_name << "! *****" << std::endl;        
 
         std::map<std::string, std::vector<std::array<int,2>>> ChrEach;
         std::unordered_map<std::string, std::string> ChrTranscriptStrand;
@@ -545,7 +548,7 @@ unGTF get_gtf_annotation(std::string& GTFFile_name) {
             GTFAll_Info.GTF_transcript[now_chr_name] = ChrEach;
             ChrTranscriptStrand[now_gene_transcript_name] = now_Exonstrand;
             GTFAll_Info.GTF_transcript_strand[now_chr_name] = ChrTranscriptStrand;
-            std::cerr << "***** The GTF file has been read to the end ! *****" << std::endl;
+            std::cout << "***** The GTF file has been read to the end ! *****" << std::endl;
         } 
         else if (GTFFile.fail()) {
             std::cerr << "File FALSE !" << std::endl;
@@ -775,7 +778,7 @@ std::unordered_map<std::string, std::string> Read_fasta_file(std::string& fastaf
 
     std::vector<std::string> VecStrings;
 
-    std::cerr << "***** Now open Fasta file: " << fastafile_name << "! *****" << std::endl;
+    std::cout << "***** Now open Fasta file: " << fastafile_name << "! *****" << std::endl;
 
     std::ifstream FastaFile; 
 
@@ -825,7 +828,7 @@ std::unordered_map<std::string, std::string> Read_fasta_file(std::string& fastaf
 
     if (FastaFile.eof()) {
 
-        std::cerr << "***** The Fasta file has been read to the end ! *****" << std::endl;
+        std::cout << "***** The Fasta file has been read to the end ! *****" << std::endl;
     } 
     else if (FastaFile.fail()) {
         std::cerr << "File FALSE !" << std::endl;
@@ -970,16 +973,16 @@ std::vector<std::string> check_catalog_exist(const std::string& output_path,
     std::vector<std::string> outputFileVector;
 
     if (!directoryExists(output_path)) {
-        std::cerr << "Directory does not exist, creating it..." << std::endl;
+        std::cout << "Directory does not exist, creating it..." << std::endl;
 
         if (createDirectory(output_path)) {
-            std::cerr << "Directory created successfully: " << output_path << std::endl;
+            std::cout << "Directory created successfully: " << output_path << std::endl;
         } else {
             std::cerr << "Failed to create directory: " << output_path << std::endl;
             exit(EXIT_FAILURE);
         }
     } else {
-        std::cerr << "Directory already exists: " << output_path << std::endl;
+        std::cout << "Directory already exists: " << output_path << std::endl;
     } 
 
 
@@ -1057,7 +1060,7 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
 
     if (S_ISREG(sam_stat.st_mode)) {
         if (ends_with(sam_file_path, ".txt") || ends_with(sam_file_path, ".tsv")) {
-            std::cerr << "* This is a txt/tsv file! * " << sam_file_path << "\n";
+            std::cout << "* This is a txt/tsv file! * " << sam_file_path << "\n";
             std::ifstream infile(sam_file_path);
             if (!infile) {
                 std::cerr << "The file cannot be opened: " << sam_file_path << " : " << std::strerror(errno) << "\n";
@@ -1075,10 +1078,10 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
             if (sam_file_vector.empty()) {
                 std::cerr << "^-^ There are 0 sam files in total. ^-^\n";
             } else {
-                std::cerr << "^-^ There are " << sam_file_vector.size() << " sam files in total. ^-^\n";
+                std::cout << "^-^ There are " << sam_file_vector.size() << " sam files in total. ^-^\n";
             }
         } else if (ends_with(sam_file_path, ".sam")) {
-            std::cerr << "* Only one sam file is entered! * " << sam_file_path << "\n";
+            std::cout << "* Only one sam file is entered! * " << sam_file_path << "\n";
             sam_file_vector.push_back(sam_file_path);
         } else {
             std::cerr << "* Not a valid file type (expect .sam/.txt/.tsv)! * " << sam_file_path << "\n";
@@ -1086,7 +1089,7 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
         }
         
     } else if (S_ISDIR(sam_stat.st_mode)) {
-        std::cerr << "* A folder was entered! * " << sam_file_path << "\n";
+        std::cout << "* A folder was entered! * " << sam_file_path << "\n";
         DIR* dir = opendir(sam_file_path.c_str());
         if (!dir) {
             std::cerr << "opendir failed: " << sam_file_path << " : " << std::strerror(errno) << "\n";
@@ -1101,7 +1104,7 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
             }
         }
         closedir(dir);
-        std::cerr << "^-^ There are " << sam_file_vector.size() << " sam files in total. ^-^\n";
+        std::cout << "^-^ There are " << sam_file_vector.size() << " sam files in total. ^-^\n";
     } else {
         std::cerr << "* Not a valid file or folder! * " << sam_file_path << "\n";
         return sam_file_vector;
@@ -1116,7 +1119,7 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
 
     Explain_file << "File" << '\t' << "File_Path" << '\n';
     for (auto i = 0; i < sam_file_vector.size(); i++) {
-        std::cerr << "SAM File " << i << " : " << sam_file_vector[i] << std::endl;
+        std::cout << "SAM File " << i << " : " << sam_file_vector[i] << std::endl;
         Explain_file << i << '\t' << sam_file_vector[i] << '\n';
     }
     Explain_file.close();
@@ -1126,26 +1129,77 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
 
 
 std::streampos findNextLineStart(std::ifstream& f, std::streampos pos) {
-    if (pos <= std::streampos(0)) return std::streampos(0);
+    // 边界检查
+    if (pos <= std::streampos(0)) {
+        return std::streampos(0);
+    }
+    
     f.clear();
-    // 已经在行首;
+    
+    // 检查 pos-1 位置的字符
     f.seekg(pos - std::streamoff(1));
+    
+    // 如果 seekg 失败（pos可能超出文件范围）
+    if (f.fail()) {
+        f.clear();
+        // 尝试定位到文件末尾
+        f.seekg(0, std::ios::end);
+        std::streampos endPos = f.tellg();
+        f.clear();
+        return endPos;  // 返回文件末尾位置而不是0
+    }
+    
     char c = '\0';
     if (f.get(c)) {
+        // 如果前一个字符是换行符，说明pos已经在行首
         if (c == '\n') {
+            f.clear();
             return pos;
         }
     } else {
+        // get失败，可能已经在文件末尾
         f.clear();
-        return std::streampos(0);
-    } 
+        f.seekg(0, std::ios::end);
+        std::streampos endPos = f.tellg();
+        f.clear();
+        return endPos;  // 返回文件末尾而不是0
+    }
+    
     f.clear();
-    // 跳过残行
+    
+    // 跳过当前残行，移动到下一行行首
     f.seekg(pos);
+    if (f.fail()) {
+        f.clear();
+        f.seekg(0, std::ios::end);
+        std::streampos endPos = f.tellg();
+        f.clear();
+        return endPos;
+    }
+    
     std::string dummy;
-    std::getline(f, dummy);          
-    return f.tellg();                     
+    if (std::getline(f, dummy)) {
+        // getline成功，返回下一行行首
+        std::streampos nextLineStart = f.tellg();
+        f.clear();
+        
+        // 检查tellg是否返回有效值
+        if (nextLineStart == std::streampos(-1)) {
+            // 已到文件末尾
+            f.seekg(0, std::ios::end);
+            nextLineStart = f.tellg();
+        }
+        return nextLineStart;
+    } else {
+        // getline失败，说明已经在文件末尾
+        f.clear();
+        f.seekg(0, std::ios::end);
+        std::streampos endPos = f.tellg();
+        f.clear();
+        return endPos;
+    }
 }
+
 
 
 void processChunk(const std::string& one_sam_file_path, const std::streampos& start, const std::streampos& end, 
@@ -1183,6 +1237,8 @@ void processChunk(const std::string& one_sam_file_path, const std::streampos& st
     std::streampos Current_Position = samfile.tellg();
     std::streampos Last_Position = Current_Position;
 
+    int stuckCount = 0;
+
     // 大缓冲区：1MB 初始容量（根据内存可调）
     std::string outBuf;
     outBuf.reserve(10 * 1024 * 1024);  // 10 MB
@@ -1191,6 +1247,20 @@ void processChunk(const std::string& one_sam_file_path, const std::streampos& st
     while (Current_Position < end) {
         Group_index++;
         each_cluster_informs = get_each_cluster_reads(samfile, Last_Position, end, mapq);
+
+        if (each_cluster_informs.newPos == Current_Position) {
+            stuckCount++;
+            std::cerr << "  Thread " << file_i << " stuck count=" << stuckCount 
+                      << " at position " << Current_Position << std::endl;
+            if (stuckCount > 10) {
+                std::cerr << "Warning: Thread " << file_i << " position stuck at " 
+                          << Current_Position << ", breaking loop" << std::endl;
+                break;
+            }
+        } else {
+            stuckCount = 0;
+        }
+
         chrchr = each_cluster_informs.SetRef_name;
         Last_Position = each_cluster_informs.lastPos;
         Current_Position = each_cluster_informs.newPos;
@@ -1330,7 +1400,6 @@ void processChunk(const std::string& one_sam_file_path, const std::streampos& st
     }
     samfile.close();
     ReadInform.close();
-    // std::cerr << "^-^ One of the threads for splitting the file has completed its processing! ^-^" << std::endl;
     std::cerr << "^-^ Thread: " << file_i << " has completed processing! ^-^" << std::endl;
 }
 
@@ -1409,6 +1478,7 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
     }
     std::sort(Read_x_vec.begin(), Read_x_vec.end()); 
     closedir(dir);
+    std::cout << "Starting to merge " << Read_x_vec.size() << " small files in " << SmallFilePath << "..." << std::endl;
 
     std::streampos Readpos;
     std::string File_total_name = SmallFilePath + "/All_Read.txt"; 
@@ -1432,6 +1502,10 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
     for (int file_number = 0; file_number < Read_x_vec.size(); file_number++) {
 
         std::string fileName = SmallFilePath + "/" + Read_x_vec[file_number];
+
+        std::cout << "Processing file " << (file_number + 1) << "/" << Read_x_vec.size() 
+                  << ": " << Read_x_vec[file_number] << std::endl;
+
         std::ifstream SmallSamFile(fileName);
         earlyGroup = "+";
         thisGroup = "+";
@@ -1592,6 +1666,8 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
     }
     AllReadInform.close();
     Chunk_Bang.FileNo = 1;
+    std::cout << "All " << Read_x_vec.size() << " small files merged successfully. Output: " 
+              << File_total_name << std::endl;
     return Chunk_Bang;
 }
 
@@ -1834,8 +1910,8 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
             startposVec.clear();
             endposVec.clear();
 
-            std::cerr << "*** Start processing SAM File " << samFileNumber << " ***" << std::endl;
-            std::cerr << "***** " << sam_file_vec[samFileNumber] << " *****" << std::endl;
+            std::cout << "*** Start processing SAM File " << samFileNumber << " ***" << std::endl;
+            std::cout << "***** " << sam_file_vec[samFileNumber] << " *****" << std::endl;
 
             std::string chunkFilePath = "sam_" + std::to_string(samFileNumber);
             chunkFilePath = joinPath(outputPath, chunkFilePath);
@@ -1889,10 +1965,10 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
             for (auto& future : myJobs) {
                 future.get();
             }
-            std::cerr << "^-^ [" << sam_file_vec[samFileNumber] << "] All threads are finished generating small files! ^-^" << std::endl;
-            std::cerr << "^-^ Start of merge small files ! ^-^" << std::endl;
+            std::cout << "^-^ [" << sam_file_vec[samFileNumber] << "] All threads are finished generating small files! ^-^" << std::endl;
+            std::cout << "^-^ Start of merge small files ! ^-^" << std::endl;
             BigBang = Merge_Read_Small_Files(chunkFilePath, samFileNumber);
-            std::cerr << "^-^ End of merge small files ! ^-^" << std::endl;
+            std::cout << "^-^ End of merge small files ! ^-^" << std::endl;
             
             if (sam_file_vec.size() > 1) {
                 File_chr_coverage[samFileNumber] = BigBang.chr_coverage;
@@ -1901,7 +1977,7 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
 
         }
         if (sam_file_vec.size() > 1) {
-            std::cerr << "^-^ The number of sam files is greater than one. Large files need to be merged. ^-^" << std::endl;
+            std::cout << "^-^ The number of sam files is greater than one. Large files need to be merged. ^-^" << std::endl;
             std::map<std::string, std::vector<std::array<int,2>>> ChrCoverage = Merge_Read_Interval(File_chr_coverage);
             std::unordered_map<std::string, std::map<std::array<int,2>, std::map<int, std::array<std::streampos,2>>>> ChrCoverage_SmallPointer = 
                                                                         get_pointers(ChrCoverage, File_chr_coverage, File_group_pointer);
@@ -1915,7 +1991,7 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
             myJobs.clear();
             int new_group = 0;
 
-            std::cerr << "^-^ Start of merge large File ! ^-^" << std::endl;
+            std::cout << "^-^ Start of merge large File ! ^-^" << std::endl;
 
             for (const auto& eachChr:ChrCoverage_SmallPointer) {
                 std::string ChrName = eachChr.first;
@@ -1940,7 +2016,7 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
                 future.get();
             }
 
-            std::cerr << "^-^ End of merge large File ! ^-^" << std::endl;
+            std::cout << "^-^ End of merge large File ! ^-^" << std::endl;
 
             BigBang.readtxt_path = FinallyFile;
             BigBang.group_reads_number = Allreads_group_number;
@@ -3958,7 +4034,7 @@ OutputInformation Write_Detection_Transcript2gtf(std::ofstream& Updated_Files, s
 
             } else {
                 novel_count = novel_count + 1;
-                //没有注释的部分;
+                if (chrname == "chrM") continue;
                 itsname = chrname + "-novel-" + group_size + "-" + std::to_string(aaa) + "-" + std::to_string(novel_count);
                 Disinform.Index2novelname[aaa] = itsname;
                 itssj = Disinform.Index2Unknown[aaa];
@@ -4121,6 +4197,7 @@ OutputInformation Write_Detection_Transcript2gtf_MultiFiles(std::ofstream& Updat
 
             } else {
                 novel_count = novel_count + 1;
+                if (chrname == "chrM") continue;
                 itsname = chrname + "-novel-" + group_size + "-" + std::to_string(aaa) + "-" + std::to_string(novel_count);
                 Disinform.Index2novelname[aaa] = itsname;
                 itssj = Disinform.Index2Unknown[aaa];
@@ -5499,9 +5576,84 @@ void processGroup(std::streampos& start, std::streampos& end,
 
     if (group_information.GroupReadSjs.size() + group_information.GroupSingleExon.size() > 100000) {
         std::unique_lock<std::mutex> lock(bigMutex);
-        std::cerr << (group_information.GroupReadSjs.size() + group_information.GroupSingleExon.size()) / ((double)1000000) << " M reads processed..\n";
+        std::cout << (group_information.GroupReadSjs.size() + group_information.GroupSingleExon.size()) / ((double)1000000) << " M reads processed..\n";
     }
 }
+
+void basename(std::string& path) {
+    size_t pos = path.find_last_of("/\\");
+    if (pos != std::string::npos) path=path.substr(pos + 1);
+    pos = path.find_last_of('.');
+    if (pos != std::string::npos) path=path.substr(0, pos);
+}
+
+
+void rewrite_quantification_file_bulk(const std::string& inputFilePath, int GImode, 
+    std::vector<std::string>& samVecName) {
+
+    if (GImode == 0) {
+        // gene;
+        std::ifstream gene_input_file(inputFilePath);
+        if (!gene_input_file) { std::cerr << "The sorting process failed.\n"; return; }
+
+        std::string line;
+        double gene_count;
+        const size_t K = samVecName.size();
+        getline(gene_input_file, line);
+        std::unordered_map<std::string, size_t> gene2idx; gene2idx.reserve(50000);
+        std::vector<std::string> idx2gene; idx2gene.reserve(50000);
+        std::vector<std::vector<double>> X; X.reserve(50000);
+        
+        while (gene_input_file >> line) {
+            auto it = gene2idx.find(line);
+            size_t r;
+            if (it == gene2idx.end()) {
+                r = X.size();
+                gene2idx.emplace(line, r);
+                idx2gene.push_back(line);
+                X.emplace_back(K, 0.0);
+            } else {
+                r = it->second;
+            }
+
+            for (int j = 0; j < K; ++j) {
+                double v;
+                if (!(gene_input_file >> v)) {
+                    std::cerr << "format error: gene=" << line << " missing value at col " << j << "\n";
+                }
+                X[r][j] += v;
+            }
+        }
+        gene_input_file.close();
+
+        // rewrite Gene;
+        std::ofstream gene_output_file(inputFilePath);
+        if (!gene_output_file) { std::cerr << "Open failed.\n"; return; }
+        std::string buffer; buffer.reserve(X.size() * (K + 1) * 20);
+        buffer += "gene_id\t";
+        for (std::string& samName:samVecName) {
+            basename(samName);
+            buffer += samName;
+        } 
+        buffer += "\n";
+        for (size_t i = 0; i < X.size(); ++i) {
+            buffer += idx2gene[i];
+            buffer += "\t";
+            for (size_t j = 0; j < K; ++j) {
+                buffer += std::to_string(X[i][j]);
+                buffer += "\t";
+            }
+            buffer += "\n";
+        }
+        gene_output_file << buffer;
+        gene_output_file.close();
+
+    } else {
+        // isoform;
+
+    }
+}
+
 
 
 
@@ -5524,7 +5676,7 @@ int main(int argc, char* argv[])
     int single_exon_edge = 300;
     int mapq = 0;
 
-    std::cerr << R"(
+    std::cout << R"(
      ____               ____   ___  _      ___ 
     | __ )  _ __ ___   / ___| / _ \| |    |_ _|
     |  _ \ | '__/ _ \ | |    | | | | |     | | 
@@ -5532,7 +5684,7 @@ int main(int argc, char* argv[])
     |____/ |_|  \___/  \____| \___/|_____||___|
     )" << std::endl;
 
-    std::cerr << "         BroCOLI  Version: 1.0.0" << std::endl;
+    std::cout << "         BroCOLI  Version: 1.0.0" << std::endl;
 
     while ((c = getopt_long(argc, argv, "s:f:g:o:j:n:m:e:d:t:r:h", long_options, &option_index)) != -1) {
         switch (c) {
@@ -5593,21 +5745,21 @@ int main(int argc, char* argv[])
     std::ofstream gene_file(outputFileVec[2], std::ios::app);
     std::ofstream trace_file(outputFileVec[3], std::ios::app);
 
-    std::cerr << "*****" << std::endl;
-    std::cerr << "Input file: " << samfile_name << std::endl;
-    std::cerr << "FASTA file: " << fastafile_name << std::endl;
-    std::cerr << "GTF file: " << gtffile_name << std::endl;
-    std::cerr << "Output file: " << output_file_name << std::endl;
-    std::cerr << "Single exon boundary: " << single_exon_edge << std::endl;
-    std::cerr << "SJ Distance: " << SJDistance << std::endl;
-    std::cerr << "SJ support read number: " << SJ_support_read_number << std::endl;
-    std::cerr << "MAPQ: " << mapq << std::endl;
-    std::cerr << "Graph distance: " << Graph_distance << std::endl;
-    std::cerr << "Thread: " << Thread << std::endl;
-    std::cerr << "Output min read count: " << Read_count << std::endl;
-    std::cerr << "*****" << std::endl;
+    std::cout << "*****" << std::endl;
+    std::cout << "Input file: " << samfile_name << std::endl;
+    std::cout << "FASTA file: " << fastafile_name << std::endl;
+    std::cout << "GTF file: " << gtffile_name << std::endl;
+    std::cout << "Output file: " << output_file_name << std::endl;
+    std::cout << "Single exon boundary: " << single_exon_edge << std::endl;
+    std::cout << "SJ Distance: " << SJDistance << std::endl;
+    std::cout << "SJ support read number: " << SJ_support_read_number << std::endl;
+    std::cout << "MAPQ: " << mapq << std::endl;
+    std::cout << "Graph distance: " << Graph_distance << std::endl;
+    std::cout << "Thread: " << Thread << std::endl;
+    std::cout << "Output min read count: " << Read_count << std::endl;
+    std::cout << "*****" << std::endl;
     
-    std::cerr << "*** " << "Read and process the files ......\n";
+    std::cout << "*** " << "Read and process the files ......\n";
     std::unordered_map<std::string, std::string> Fasta = Read_fasta_file(fastafile_name);
 
     auto start = std::chrono::high_resolution_clock::now();
@@ -5616,19 +5768,19 @@ int main(int argc, char* argv[])
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = end - start;
-    std::cerr << "Read file information cost time = " << diff.count() << " s\n";    
+    std::cout << "Read file information cost time = " << diff.count() << " s\n";    
 
     unGTF GTF_full = get_gtf_annotation(gtffile_name);
     GTFsj GTF_Splice = get_SJs_SE(GTF_full.GTF_transcript);
     std::vector<std::size_t> Group_idx = sort_indexes_e(BroCOLIfile.group_reads_number);
-    std::cerr << "*** File processing completed! ***\n";
+    std::cout << "*** File processing completed! ***\n";
 
     ThreadPool BroCOLIpool(Thread);
     std::vector<std::future<void>> futures;
 
-    std::cerr << "*** " << "Transcript identification and quantification ......\n";
-    std::cerr << "*** " << "Only output the completion status of the larger clusters ......\n";
-    std::cerr << "*** " << "Clusters with less than 10k reads will not be output ......\n";
+    std::cout << "*** " << "Transcript identification and quantification ......\n";
+    std::cout << "*** " << "Only output the completion status of the larger clusters ......\n";
+    std::cout << "*** " << "Clusters with less than 10k reads will not be output ......\n";
     start = std::chrono::high_resolution_clock::now();
     for (const auto& i:Group_idx) {
         futures.emplace_back(BroCOLIpool.enqueue([&, i]() { 
@@ -5655,14 +5807,19 @@ int main(int argc, char* argv[])
     }
     end = std::chrono::high_resolution_clock::now();
     diff = end - start;
-    std::cerr << "Identification and quantification cost time = " << diff.count() << " s\n";
+    std::cout << "Identification and quantification cost time = " << diff.count() << " s\n";
 
     gtf_file.close();
     isoform_file.close();
     gene_file.close();
     trace_file.close();
-    std::cerr << "*** BroCOLI quantification has been successfully completed! ***\n";
+    std::cout << "*** BroCOLI quantification has been successfully completed! ***\n";
 
+    std::cout << "*** Rewriting the quantification file ......\n";
+    rewrite_quantification_file_bulk(outputFileVec[2], 0, sam_file_vec);
+    // rewrite_quantification_file_bulk(outputFileVec[1], 1, sam_file_vec);
+
+    std::cout << "BroCOLI has successfully concluded.\n";
     return 0;
 }
 

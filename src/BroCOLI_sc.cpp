@@ -448,18 +448,23 @@ Reads_Clusters get_each_cluster_reads_sc(std::ifstream& samfile, std::streampos 
             }
         }
 	}
-    if (CurrentPos >= EndPos) {
-        NewCluster.lastPos = earlyPos;
+
+    NewCluster.lastPos = earlyPos;
+    if (samfile.eof() || CurrentPos >= EndPos) {
+        NewCluster.newPos = EndPos;
+    } else if (CurrentPos == earlyPos) {  // 位置没前进
+        NewCluster.newPos = EndPos;
+    } else {
         NewCluster.newPos = CurrentPos;
-        NewCluster.Mymap = read_informs;
-        NewCluster.Mylen = read_len;
-        NewCluster.MyFlag = read_flag;
-        NewCluster.ClusterCoverage[0] = early_begin_pos;
-        NewCluster.ClusterCoverage[1] = early_end_pos;
-        NewCluster.SetRef_name = last_chr;
-        NewCluster.ReadsBarcode = read_of_Barcode;
-        NewCluster.ReadsUMI = read_of_UMI;
     }
+    NewCluster.Mymap = read_informs;
+    NewCluster.Mylen = read_len;
+    NewCluster.MyFlag = read_flag;
+    NewCluster.ClusterCoverage[0] = early_begin_pos;
+    NewCluster.ClusterCoverage[1] = early_end_pos;
+    NewCluster.SetRef_name = last_chr;   
+    NewCluster.ReadsBarcode = read_of_Barcode;
+    NewCluster.ReadsUMI = read_of_UMI;
     return NewCluster;
 }
 
@@ -569,7 +574,7 @@ unGTF get_gtf_annotation(std::string& GTFFile_name) {
 
     if (!GTFFile_name.empty()) {
 
-        std::cerr << "***** Now open the gtf file: " << GTFFile_name << "! *****" << std::endl;        
+        std::cout << "***** Now open the gtf file: " << GTFFile_name << "! *****" << std::endl;        
 
         std::map<std::string, std::vector<std::array<int,2>>> ChrEach;
         std::unordered_map<std::string, std::string> ChrTranscriptStrand;
@@ -655,7 +660,7 @@ unGTF get_gtf_annotation(std::string& GTFFile_name) {
             GTFAll_Info.GTF_transcript[now_chr_name] = ChrEach;
             ChrTranscriptStrand[now_gene_transcript_name] = now_Exonstrand;
             GTFAll_Info.GTF_transcript_strand[now_chr_name] = ChrTranscriptStrand;
-            std::cerr << "***** The GTF file has been read to the end ! *****" << std::endl;
+            std::cout << "***** The GTF file has been read to the end ! *****" << std::endl;
         } 
         else if (GTFFile.fail()) {
             std::cerr << "File FALSE !" << std::endl;
@@ -962,8 +967,21 @@ bool ifSjNoError(const std::vector<std::array<int,2>>& leftSj, const std::vector
 
 int ifSjSignal(std::string& Fasta_chr, const std::array<int,2>& Sj_Array, int& itsFlag) {
     int flag = 0;
-    std::string signal1 = Fasta_chr.substr(Sj_Array[0]-1, 2);
-    std::string signal2 = Fasta_chr.substr(Sj_Array[1]-2, 2);
+    size_t pos1 = Sj_Array[0] - 1;
+    if (pos1 + 2 > Fasta_chr.size()) {
+        std::cerr << "ERROR: signal1 substring out of range! " << std::endl;
+        std::cerr << "ERROR perhaps it is because the reference used during the mapping process does not match the given reference! " << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+    std::string signal1 = Fasta_chr.substr(pos1, 2);
+
+    size_t pos2 = Sj_Array[1] - 2;
+    if (pos2 + 2 > Fasta_chr.size()) {
+        std::cerr << "ERROR: signal2 substring out of range!" << std::endl;
+        std::cerr << "ERROR perhaps it is because the reference used during the mapping process does not match the given reference! " << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+    std::string signal2 = Fasta_chr.substr(pos2, 2);
 
     std::transform(signal1.begin(), signal1.end(), signal1.begin(), ::toupper);
     std::transform(signal2.begin(), signal2.end(), signal2.begin(), ::toupper);
@@ -1027,12 +1045,9 @@ bool directoryExists(const std::string& path) {
 }
 
 bool createDirectory(const std::string& path) {
-
     if (mkdir(path.c_str(), 0755) == 0) {
-
         return true;
     } else {
-
         std::cerr << "Error creating directory: " << path << strerror(errno) << std::endl;
         return false;
     }
@@ -1058,7 +1073,7 @@ void print_usage(const char* program_name) {
     std::cout << "  -f, --fasta                 FASTA file path. FASTA file requires the chromosome names to match the GTF file. (required)" << std::endl;
     std::cout << "  -g, --gtf                   input annotation file in GTF format. (optional, Recommendation provided)" << std::endl;
     std::cout << "  -o, --output                output folder path. (required)" << std::endl;
-    // std::cout << "  -m, --mode                  Sequencing method (default: 0(cDNA), !0(direct RNA))" << std::endl;
+    std::cout << "  -m, --mapq                  Mapping quality threshold. (optional, default:0)" << std::endl;
     std::cout << "  -j, --SJDistance            the minimum distance determined as intron. (optional, default:18)" << std::endl;
     std::cout << "  -n, --support               min perfect read count for all splice junctions of novel isoform. (optional, default:2)" << std::endl;
     std::cout << "  -e, --single_exon_boundary  belongs to the isoform scope of a single exon. (optional, default:60)" << std::endl;
@@ -1067,6 +1082,7 @@ void print_usage(const char* program_name) {
     std::cout << "  -u, --umi                   umi_tag (optional, default:U8:Z:)." << std::endl;
     std::cout << "  -b, --barcode               barcode_tag (optional, default:BC:Z:)." << std::endl;
     std::cout << "  -r, --output_min_read_count the minimum number of transcripts in the output results. (optional, int, default:1)" << std::endl;
+    std::cout << "  -k, --do_umi_delete         Perform the umi deduplication operation." << std::endl;
     std::cout << "  -h, --help                  show this help information." << std::endl;
 }
 
@@ -1124,7 +1140,7 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
 
     if (S_ISREG(sam_stat.st_mode)) {
         if (ends_with(sam_file_path, ".txt") || ends_with(sam_file_path, ".tsv")) {
-            std::cerr << "* This is a txt/tsv file! * << " << sam_file_path << std::endl;
+            std::cout << "* This is a txt/tsv file! * << " << sam_file_path << std::endl;
             std::ifstream infile(sam_file_path);
             if (!infile) {
                 std::cerr << "The file cannot be opened: " << sam_file_path << " : " << std::strerror(errno) << "\n";
@@ -1140,12 +1156,12 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
             }
             infile.close();
             if (sam_file_vector.empty()) {
-                std::cerr << "^-^ There are 0 sam files in total. ^-^\n";
+                std::cout << "^-^ There are 0 sam files in total. ^-^\n";
             } else {
-                std::cerr << "^-^ There are " << sam_file_vector.size() << " sam files in total. ^-^\n";
+                std::cout << "^-^ There are " << sam_file_vector.size() << " sam files in total. ^-^\n";
             }
         } else if (ends_with(sam_file_path, ".sam")) {
-            std::cerr << "* Only one sam file is entered! * " << sam_file_path << "\n";
+            std::cout << "* Only one sam file is entered! * " << sam_file_path << "\n";
             sam_file_vector.push_back(sam_file_path);
         } else {
             std::cerr << "* Not a valid file type (expect .sam/.txt/.tsv)! * " << sam_file_path << "\n";
@@ -1153,7 +1169,7 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
         }
         
     } else if (S_ISDIR(sam_stat.st_mode)) {
-        std::cerr << "* A folder was entered! * " << sam_file_path << "\n";
+        std::cout << "* A folder was entered! * " << sam_file_path << "\n";
         DIR* dir = opendir(sam_file_path.c_str());
         if (!dir) {
             std::cerr << "opendir failed: " << sam_file_path << " : " << std::strerror(errno) << "\n";
@@ -1168,7 +1184,7 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
             }
         }
         closedir(dir);
-        std::cerr << "^-^ There are " << sam_file_vector.size() << " sam files in total. ^-^\n";
+        std::cout << "^-^ There are " << sam_file_vector.size() << " sam files in total. ^-^\n";
     } else {
         std::cerr << "* Not a valid file or folder! * " << sam_file_path << "\n";
         return sam_file_vector;
@@ -1192,25 +1208,75 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
 
 
 std::streampos findNextLineStart(std::ifstream& f, std::streampos pos) {
-    if (pos <= std::streampos(0)) return std::streampos(0);
+    // 边界检查
+    if (pos <= std::streampos(0)) {
+        return std::streampos(0);
+    }
+    
     f.clear();
-    // 已经在行首;
+    
+    // 检查 pos-1 位置的字符
     f.seekg(pos - std::streamoff(1));
+    
+    // 如果 seekg 失败（pos可能超出文件范围）
+    if (f.fail()) {
+        f.clear();
+        // 尝试定位到文件末尾
+        f.seekg(0, std::ios::end);
+        std::streampos endPos = f.tellg();
+        f.clear();
+        return endPos;  // 返回文件末尾位置而不是0
+    }
+    
     char c = '\0';
     if (f.get(c)) {
+        // 如果前一个字符是换行符，说明pos已经在行首
         if (c == '\n') {
+            f.clear();
             return pos;
         }
     } else {
+        // get失败，可能已经在文件末尾
         f.clear();
-        return std::streampos(0);
-    } 
+        f.seekg(0, std::ios::end);
+        std::streampos endPos = f.tellg();
+        f.clear();
+        return endPos;  // 返回文件末尾而不是0
+    }
+    
     f.clear();
-    // 跳过残行
+    
+    // 跳过当前残行，移动到下一行行首
     f.seekg(pos);
+    if (f.fail()) {
+        f.clear();
+        f.seekg(0, std::ios::end);
+        std::streampos endPos = f.tellg();
+        f.clear();
+        return endPos;
+    }
+    
     std::string dummy;
-    std::getline(f, dummy);          
-    return f.tellg();                     
+    if (std::getline(f, dummy)) {
+        // getline成功，返回下一行行首
+        std::streampos nextLineStart = f.tellg();
+        f.clear();
+        
+        // 检查tellg是否返回有效值
+        if (nextLineStart == std::streampos(-1)) {
+            // 已到文件末尾
+            f.seekg(0, std::ios::end);
+            nextLineStart = f.tellg();
+        }
+        return nextLineStart;
+    } else {
+        // getline失败，说明已经在文件末尾
+        f.clear();
+        f.seekg(0, std::ios::end);
+        std::streampos endPos = f.tellg();
+        f.clear();
+        return endPos;
+    }
 }
 
 
@@ -1250,6 +1316,8 @@ void processChunk(const std::string& one_sam_file_path, const std::streampos& st
     std::streampos Current_Position = samfile.tellg();
     std::streampos Last_Position = Current_Position;
 
+    int stuckCount = 0;
+
     // 大缓冲区：1MB 初始容量（根据内存可调）
     std::string outBuf;
     outBuf.reserve(10 * 1024 * 1024);  // 10 MB
@@ -1258,6 +1326,20 @@ void processChunk(const std::string& one_sam_file_path, const std::streampos& st
     while (Current_Position < end) {
         Group_index++;
         each_cluster_informs = get_each_cluster_reads_sc(samfile, Last_Position, end, mapq, umi_tag_second, barcode_tag_second);
+        
+        if (each_cluster_informs.newPos == Current_Position) {
+            stuckCount++;
+            std::cerr << "  Thread " << file_i << " stuck count=" << stuckCount 
+                      << " at position " << Current_Position << std::endl;
+            if (stuckCount > 10) {
+                std::cerr << "Warning: Thread " << file_i << " position stuck at " 
+                          << Current_Position << ", breaking loop" << std::endl;
+                break;
+            }
+        } else {
+            stuckCount = 0;
+        }        
+        
         chrchr = each_cluster_informs.SetRef_name;
         Last_Position = each_cluster_informs.lastPos;
         Current_Position = each_cluster_informs.newPos;
@@ -1310,8 +1392,7 @@ void processChunk(const std::string& one_sam_file_path, const std::streampos& st
     }
     samfile.close();
     ReadInform.close();
-    // std::cout << "^-^ Thread: " << std::this_thread::get_id() << " has completed processing! ^-^" << std::endl;
-    std::cerr << "^-^ Thread: " << file_i << " has completed processing! ^-^" << std::endl;
+    std::cout << "^-^ Thread: " << file_i << " has completed processing! ^-^" << std::endl;
 }
 
 
@@ -1393,6 +1474,8 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
     std::sort(Read_x_vec.begin(), Read_x_vec.end()); 
     closedir(dir);
 
+    std::cout << "Starting to merge " << Read_x_vec.size() << " small files in " << SmallFilePath << "..." << std::endl;
+
     std::streampos Readpos;
     std::string File_total_name = SmallFilePath + "/All_Read.txt"; 
     std::ofstream AllReadInform(File_total_name, std::ios::trunc);  
@@ -1417,6 +1500,10 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
     for (int file_number = 0; file_number < Read_x_vec.size(); file_number++) {
 
         std::string fileName = SmallFilePath + "/" + Read_x_vec[file_number];
+
+        std::cout << "Processing file " << (file_number + 1) << "/" << Read_x_vec.size() 
+                  << ": " << Read_x_vec[file_number] << std::endl;
+        
         std::ifstream SmallSamFile(fileName);
         earlyGroup = "+";
         thisGroup = "+";
@@ -1577,6 +1664,8 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
         std::remove(fileName.c_str());
     }
     AllReadInform.close();
+    std::cout << "All " << Read_x_vec.size() << " small files merged successfully. Output: " 
+              << File_total_name << std::endl;
     Chunk_Bang.FileNo = 1;
     Chunk_Bang.file_barcodeSet[std::to_string(SAMFileNumber)] = cellSet;
     return Chunk_Bang;
@@ -1821,8 +1910,8 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
             startposVec.clear();
             endposVec.clear();
 
-            std::cerr << "*** Start processing SAM File " << samFileNumber << " ***" << std::endl;
-            std::cerr << "***** " << sam_file_vec[samFileNumber] << " *****" << std::endl;
+            std::cout << "*** Start processing SAM File " << samFileNumber << " ***" << std::endl;
+            std::cout << "***** " << sam_file_vec[samFileNumber] << " *****" << std::endl;
             
             std::string chunkFilePath = "sam_" + std::to_string(samFileNumber);
             chunkFilePath = joinPath(outputPath, chunkFilePath);
@@ -1878,8 +1967,8 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
             for (auto& future : myJobs) {
                 future.get(); 
             }
-            std::cerr << "^-^ [" << sam_file_vec[samFileNumber] << "] All threads are finished generating small files! ^-^" << std::endl;
-            std::cerr << "^-^ Start of merge small files ! ^-^" << std::endl;
+            std::cout << "^-^ [" << sam_file_vec[samFileNumber] << "] All threads are finished generating small files! ^-^" << std::endl;
+            std::cout << "^-^ Start of merge small files ! ^-^" << std::endl;
             BigBang = Merge_Read_Small_Files(chunkFilePath, samFileNumber);
             std::cout << "^-^ End of merge small files ! ^-^" << std::endl;
 
@@ -2416,7 +2505,8 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                                     std::unordered_map<std::string, std::pair<std::vector<std::array<int,2>>, std::vector<std::string>>>& AlreadyFSM,
                                     std::ofstream& Trace,
                                     std::unordered_map<std::string, std::string>& groupreadbarcodes,
-                                    std::unordered_map<std::string, std::string>& groupreadumis) {
+                                    std::unordered_map<std::string, std::string>& groupreadumis,
+                                    const int& umiMode) {
     
     SE_belong2_genetranscript SingleReads;
     
@@ -2553,7 +2643,7 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
         }
     }
 
-    delete_umi_replicate(SingleReads_inGenes, groupreadbarcodes, groupreadumis);
+    if (umiMode) delete_umi_replicate(SingleReads_inGenes, groupreadbarcodes, groupreadumis);
 
     std::vector<int> Tx_Temp_Dist; 
     std::vector<int> Tx_Temp_exon; 
@@ -3363,14 +3453,14 @@ SpliceChainClass generate_splice_chain_class(
                                 std::unordered_map<std::string, std::string>& groupreadbarcodes,
                                 std::unordered_map<std::string, std::string>& groupreadumis,
                                 std::ofstream& traceFilePath,
-                                const int& Sj_Support_Number) {
+                                const int& Sj_Support_Number, const int& umiMode) {
     SpliceChainClass SCC;
     ReferenceCluster FsmIsmOthers;
     HighLowClusters Others2HighLow;
     std::unordered_map<std::size_t, std::vector<std::string>> groupCluster = classifyReadsVec(groupreadsjs);
     
     // std::unordered_map<std::size_t, std::vector<std::string>> New_groupCluster = delete_umi_replicate(groupCluster, groupreadbarcodes, groupreadumis);
-    delete_umi_replicate(groupCluster, groupreadbarcodes, groupreadumis);    
+    if (umiMode) delete_umi_replicate(groupCluster, groupreadbarcodes, groupreadumis);    
 
     SCC.ClusterCoverage = get_every_cluster_begin_end(groupCluster, groupreadcoverage);
     FsmIsmOthers = get_FSM_and_others_sc(groupCluster, groupannotations, AnnoCoverage, groupreadcoverage, groupreadsjs, groupreadfiles, groupreadbarcodes, traceFilePath);
@@ -3877,6 +3967,7 @@ OutputInformation Write_Detection_Transcript2gtf_AllFiles(std::ofstream& Updated
 
             } else {
                 novel_count = novel_count + 1;
+                if (chrname == "chrM") continue;
                 itsname = chrname + "-novel-" + group_size + "-" + std::to_string(aaa) + "-" + std::to_string(novel_count);
                 Disinform.Index2novelname[aaa] = itsname;
                 itssj = Disinform.Index2Unknown[aaa];
@@ -4647,11 +4738,13 @@ void write_transcript_file(std::unordered_map<std::string, std::vector<double>>&
                     if (it_val != counts_map.end()) {
                         val = it_val->second;
                     }
+                    int64_t output_val;
                     if (val < rc_threshold) {
-                        main_file_buffer << '\t' << 0;
+                        output_val = 0;
                     } else {
-                        main_file_buffer << '\t' << val;
+                        output_val = static_cast<int64_t>(std::round(val));
                     }
+                    main_file_buffer << '\t' << output_val;
                 }
                 main_file_buffer << '\n';
             }
@@ -4729,10 +4822,13 @@ void write_gene_file(std::unordered_map<std::string, std::unordered_map<std::str
         out += kv.first;
         const std::vector<double>& vec = kv.second;
         for (double c : vec) {
-            if (c < rc_threshold) c = 0;
+            // if (c < rc_threshold) c = 0;
+            // out += '\t';
+            // out += std::to_string((int)(c+0.5)); // ★取整了, 结果加和有点区别;
+            double value_to_output = (c < rc_threshold) ? 0.0 : c;
+            int64_t rounded = static_cast<int64_t>(std::round(value_to_output));
             out += '\t';
-            out += std::to_string((int)(c+0.5)); // ★取整了, 结果加和有点区别;
-            // out += std::to_string(c);
+            out += std::to_string(rounded);
         }
         out += '\n';
     }
@@ -4923,7 +5019,8 @@ void processGroup(std::streampos& start, std::streampos& end,
                   std::vector<std::mutex>& geneMutexes,
                   int& fileno, std::string& outputPath,
                   std::map<std::string, std::set<std::string>>& filebarcodeSet,
-                  int& singleEdge, int& ReadCount_threshold) {
+                  int& singleEdge, int& ReadCount_threshold,
+                  const int& umiMode) {
     
     GroupInformation group_information = knowGroupInformation(start, end, sam_file_path, Sj_supportReadNumber);
     std::string chrchr = group_information.chrName;
@@ -4942,7 +5039,7 @@ void processGroup(std::streampos& start, std::streampos& end,
         spliceclass = generate_splice_chain_class(group_information.GroupReadSjs, group_information.GroupReadCoverage, 
                                                 group_annotation.group_me_SJs, group_information.GroupSigns, 
                                                 gtf_splice.mSJsBE[chrchr], group_information.GroupReadFiles, group_information.GroupReadBarcodes, 
-                                                group_information.GroupReadUMIs, tracefile, Sj_supportReadNumber);
+                                                group_information.GroupReadUMIs, tracefile, Sj_supportReadNumber, umiMode);
         group_information.GroupSigns.clear();
         group_information.GroupReadCoverage.clear();
     }
@@ -4951,7 +5048,8 @@ void processGroup(std::streampos& start, std::streampos& end,
         group_se_reads = get_group_singleexon_reads_2gene(group_annotation, group_information.GroupSingleExon, 
                                         group_information.GroupReadFiles, gtf_full.GTF_gene2transcript[chrchr], 
                                         gtf_full.GTF_transcript[chrchr], fileno, singleEdge, chrchr, spliceclass.FSM, tracefile,
-                                        group_information.GroupReadBarcodes, group_information.GroupReadUMIs);
+                                        group_information.GroupReadBarcodes, group_information.GroupReadUMIs,
+                                        umiMode);
 
         write_single_exon_gtf_trace_sc(fileno, group_information.GroupReadFiles, group_se_reads.Transcript_with_SE_reads, 
                                     group_annotation.group_se_transcripts, updatedgtffile, tracefile, isoformfilePath, isoformMutexes, 
@@ -4970,7 +5068,216 @@ void processGroup(std::streampos& start, std::streampos& end,
 
     if (group_information.GroupReadSjs.size() + group_information.GroupSingleExon.size() > 10000) {
         std::unique_lock<std::mutex> lock(bigMutex);
-        std::cerr << (group_information.GroupReadSjs.size() + group_information.GroupSingleExon.size()) / ((double)1000000) << " M reads processed..\n";
+        std::cout << (group_information.GroupReadSjs.size() + group_information.GroupSingleExon.size()) / ((double)1000000) << " M reads processed..\n";
+    }
+}
+
+
+void basename(std::string& path) {
+    size_t pos = path.find_last_of("/\\");
+    if (pos != std::string::npos) path=path.substr(pos + 1);
+    pos = path.find_last_of('.');
+    if (pos != std::string::npos) path=path.substr(0, pos);
+}
+
+
+void rewrite_quantification_file_sc(const std::string& inputFilePath, int FileNumber, int GImode) {
+
+    if (GImode == 0) {
+        // gene;
+        std::string thisFile = std::to_string(FileNumber);
+        std::string genefile = "counts_gene_" + thisFile + ".txt";
+        genefile = joinPath(inputFilePath, genefile);        
+
+        std::ifstream gene_input_file(genefile);
+        if (!gene_input_file) { std::cerr << "The sorting process failed.\n"; return; }
+
+        std::string header;
+        if (!std::getline(gene_input_file, header)) { std::cerr << "Failed to read header.\n"; return; }
+
+        std::stringstream header_ss(header);
+        std::string token;
+        if (!(header_ss >> token) || token != "gene_id") {
+            std::cerr << "Header format error: expected 'gene_id' as first column.\n";
+            return;
+        }
+
+        std::vector<std::string> barcodes;  
+        while (header_ss >> token) barcodes.push_back(std::move(token));
+
+        size_t num_barcodes = barcodes.size();
+        if (num_barcodes == 0) {
+            std::cerr << "No barcodes found in header.\n";
+            return;
+        }
+
+        std::unordered_map<std::string, std::vector<int64_t>> gene_counts; gene_counts.reserve(50000);
+        std::string line;
+        while (std::getline(gene_input_file, line)) {
+            if (line.empty()) continue;
+
+            std::istringstream line_ss(line);
+            std::string gene_id;
+            if (!(line_ss >> gene_id)) continue;
+
+            std::vector<int64_t> counts(num_barcodes, 0);
+            int64_t val;
+            size_t col_idx = 0;
+            while (line_ss >> val) {
+                if (col_idx < num_barcodes) {
+                    counts[col_idx] = val;
+                    ++col_idx;
+                } else {
+                    break;
+                }
+            }
+            if (col_idx < num_barcodes) {
+                std::cerr << "Column missing for " << gene_id << "\n";
+            }
+            auto it = gene_counts.find(gene_id);
+            if (it == gene_counts.end()) {
+                gene_counts.emplace(std::move(gene_id), std::move(counts));
+            } else {
+                auto& existing = it->second;
+                for (size_t i = 0; i < num_barcodes; ++i) {
+                    existing[i] += counts[i];
+                }
+            }
+        }        
+        gene_input_file.close();
+        // 输出;
+        std::ofstream out(genefile);
+        if (!out) { std::cerr << "Cannot open output file.\n"; return; }
+        std::ostringstream buffer;
+        size_t estimated_lines = gene_counts.size() + 1;  
+        size_t avg_gene_id_len = 20; 
+        size_t avg_number_len = 12; 
+        size_t estimated_size = estimated_lines * (avg_gene_id_len + num_barcodes * (avg_number_len + 1) + 10);
+        buffer.str().reserve(estimated_size);
+
+        buffer << "gene_id";
+        for (const auto& bc : barcodes) {
+            buffer << "\t" << bc;
+        }
+        buffer << "\n";            
+
+        for (const auto& kv : gene_counts) {
+            buffer << kv.first;
+            for (int64_t v : kv.second) {
+                buffer << "\t" << v;
+            }
+            buffer << "\n";
+        }
+        out << buffer.str();
+        out.close();
+        std::cout << "Gene file " << FileNumber << " end.\n";
+
+    } else {
+        // isoform;
+        std::string thisFile = std::to_string(FileNumber);
+        std::string transcriptfile = "counts_transcript_" + thisFile + ".txt";
+        transcriptfile = joinPath(inputFilePath, transcriptfile); 
+
+        std::ifstream transcript_input_file(transcriptfile);
+        if (!transcript_input_file) {std::cerr << "The transcript file open failed: " << transcriptfile << "\n"; return;}
+
+        std::string header;
+        if (!std::getline(transcript_input_file, header)) { std::cerr << "Failed to read header in transcript file.\n"; return;}
+
+        std::istringstream header_ss(header);
+        std::string token;
+        if (!(header_ss >> token) || token != "transcript_id") {
+            std::cerr << "Header format error: expected 'transcript_id' as first column.\n";
+            return;
+        }        
+
+        if (!(header_ss >> token) || token != "gene_id") {
+            std::cerr << "Header format error: expected 'gene_id' as second column.\n";
+            return;
+        }
+
+        std::vector<std::string> barcodes;  
+        while (header_ss >> token) barcodes.push_back(std::move(token));
+
+        size_t num_barcodes = barcodes.size();
+        if (num_barcodes == 0) {
+            std::cerr << "No barcodes found in transcript header.\n";
+            return;
+        }
+
+        std::unordered_map<std::string, std::pair<std::string, std::vector<int64_t>>> transcript_counts; transcript_counts.reserve(100000);
+        std::string line;
+        while (std::getline(transcript_input_file, line)) {
+            if (line.empty()) continue;
+
+            std::istringstream line_ss(line);
+            std::string transcript_id;
+            std::string gene_id;
+
+            if (!(line_ss >> transcript_id >> gene_id)) continue;
+
+            std::vector<int64_t> counts(num_barcodes, 0);
+            int64_t val;
+            size_t col_idx = 0;
+            while (line_ss >> val) {
+                if (col_idx < num_barcodes) {
+                    counts[col_idx] = val;
+                    ++col_idx;
+                } else {
+                    break;
+                }
+            }
+
+            if (col_idx < num_barcodes) {
+                std::cerr << "Column missing for transcript " << transcript_id << "\n";
+            }
+
+            auto it = transcript_counts.find(transcript_id);
+            if (it == transcript_counts.end()) {
+                transcript_counts.emplace(
+                    std::move(transcript_id),
+                    std::make_pair(std::move(gene_id), std::move(counts))
+                );
+            } else {
+                if (it->second.first != gene_id) {
+                    std::cerr << "Warning: transcript_id " << transcript_id 
+                              << " has inconsistent gene_id (" << it->second.first 
+                              << " vs " << gene_id << "), keeping the first one.\n";
+                }
+                auto& existing_counts = it->second.second;
+                for (size_t i = 0; i < num_barcodes; ++i) {
+                    existing_counts[i] += counts[i];
+                }
+            }
+        }
+        transcript_input_file.close();        
+        std::ofstream out(transcriptfile);
+        if (!out) { std::cerr << "Cannot open output transcript file.\n"; return; }
+
+        std::ostringstream buffer;
+        size_t estimated_lines = transcript_counts.size() + 1;
+        size_t avg_transcript_id_len = 20;
+        size_t avg_gene_id_len = 20;
+        size_t avg_number_len = 12;
+        size_t estimated_size = estimated_lines * (avg_transcript_id_len + avg_gene_id_len + 
+                                 num_barcodes * (avg_number_len + 1) + 20);
+        buffer.str().reserve(estimated_size);           
+        buffer << "transcript_id\tgene_id";
+        for (const auto& bc : barcodes) {
+            buffer << "\t" << bc;
+        }
+        buffer << "\n";
+
+        for (const auto& kv : transcript_counts) {
+            buffer << kv.first << "\t" << kv.second.first;
+            for (int64_t v : kv.second.second) {
+                buffer << "\t" << v;
+            }
+            buffer << "\n";
+        }
+        out << buffer.str();
+        out.close();
+        std::cout << "Transcript file " << FileNumber << " end.\n";
     }
 }
 
@@ -4990,14 +5297,15 @@ int main(int argc, char* argv[])
     int SJDistance = 18;
     int SJ_support_read_number = 2;
     int Graph_distance = 60;
-    int Thread = 10;
+    int Thread = 8;
     int Read_count = 0;
     int single_exon_edge = 500;
     std::string umi = "U8:Z:";
     std::string barcode = "BC:Z:";
     int mapq = 0;
+    int do_umi_delete = 0;
 
-    std::cerr << R"(
+    std::cout << R"(
      ____               ____   ___  _      ___ 
     | __ )  _ __ ___   / ___| / _ \| |    |_ _|
     |  _ \ | '__/ _ \ | |    | | | | |     | | 
@@ -5005,9 +5313,9 @@ int main(int argc, char* argv[])
     |____/ |_|  \___/  \____| \___/|_____||___|
     )" << std::endl;
 
-    std::cerr << "         BroCOLI  Version: 1.0.0" << std::endl;
+    std::cout << "         BroCOLI  Version: 1.0.0" << std::endl;
 
-    while ((c = getopt_long(argc, argv, "s:f:g:o:j:n:m:e:d:t:u:b:r:h", long_options, &option_index)) != -1) {
+    while ((c = getopt_long(argc, argv, "s:f:g:o:j:n:m:e:d:t:u:b:r:k:h", long_options, &option_index)) != -1) {
         switch (c) {
             case 's':
                 samfile_name = optarg;
@@ -5047,7 +5355,10 @@ int main(int argc, char* argv[])
                 break;
             case 'r':
                 Read_count = std::stoi(optarg);   
-                break;            
+                break;      
+            case 'k':
+                do_umi_delete = std::stoi(optarg);   
+                break;        
             case 'h':
                 print_usage(argv[0]);
                 exit(EXIT_FAILURE);              
@@ -5070,21 +5381,22 @@ int main(int argc, char* argv[])
     std::ofstream gtf_file(outputFileVec[0], std::ios::app);
     std::ofstream trace_file(outputFileVec[1], std::ios::app);
 
-    std::cerr << "*****" << std::endl;
-    std::cerr << "Input file: " << samfile_name << std::endl;
-    std::cerr << "FASTA file: " << fastafile_name << std::endl;
-    std::cerr << "GTF file: " << gtffile_name << std::endl;
-    std::cerr << "Output file: " << output_file_name << std::endl;
-    std::cerr << "Single exon boundary : " << single_exon_edge << std::endl;
-    std::cerr << "SJ Distance: " << SJDistance << std::endl;
-    std::cerr << "SJ support read number: " << SJ_support_read_number << std::endl;
-    std::cerr << "MAPQ: " << mapq << std::endl;
-    std::cerr << "Graph distance: " << Graph_distance << std::endl;
-    std::cerr << "Thread: " << Thread << std::endl;
-    std::cerr << "Output min read count: " << Read_count << std::endl;
-    std::cerr << "*****" << std::endl;
+    std::cout << "*****" << std::endl;
+    std::cout << "Input file: " << samfile_name << std::endl;
+    std::cout << "FASTA file: " << fastafile_name << std::endl;
+    std::cout << "GTF file: " << gtffile_name << std::endl;
+    std::cout << "Output file: " << output_file_name << std::endl;
+    std::cout << "UMI deduplication(0 False 1 True): " << do_umi_delete << std::endl;
+    std::cout << "Single exon boundary : " << single_exon_edge << std::endl;
+    std::cout << "SJ Distance: " << SJDistance << std::endl;
+    std::cout << "SJ support read number: " << SJ_support_read_number << std::endl;
+    std::cout << "MAPQ: " << mapq << std::endl;
+    std::cout << "Graph distance: " << Graph_distance << std::endl;
+    std::cout << "Thread: " << Thread << std::endl;
+    std::cout << "Output min read count: " << Read_count << std::endl;
+    std::cout << "*****" << std::endl;
 
-    std::cerr << "*** " << "Read and process the files ...... " << std::endl;
+    std::cout << "*** " << "Read and process the files ...... " << std::endl;
     std::unordered_map<std::string, std::string> Fasta = Read_fasta_file(fastafile_name);
 
     auto start = std::chrono::high_resolution_clock::now();
@@ -5093,7 +5405,7 @@ int main(int argc, char* argv[])
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = end - start;
-    std::cerr << "Read file information cost time = " << diff.count() << " s\n";     
+    std::cout << "Read file information cost time = " << diff.count() << " s\n";     
 
     std::vector<std::unique_ptr<std::ofstream>> BroCOLIQuantfile = write_quantification_files(output_file_name, BroCOLIfile.file_barcodeSet);
     std::vector<std::mutex> TranscriptMutexes(BroCOLIQuantfile.size());
@@ -5103,14 +5415,14 @@ int main(int argc, char* argv[])
     unGTF GTF_full = get_gtf_annotation(gtffile_name);
     GTFsj GTF_Splice = get_SJs_SE(GTF_full.GTF_transcript);
     std::vector<std::size_t> Group_idx = sort_indexes_e(BroCOLIfile.group_reads_number);
-    std::cerr << "*** File processing completed! ***\n";
+    std::cout << "*** File processing completed! ***\n";
 
     ThreadPool BroCOLIpool(Thread);
     std::vector<std::future<void>> futures;
 
-    std::cerr << "*** " << "Transcript identification and quantification ......\n";
-    std::cerr << "*** " << "Only output the completion status of the larger clusters ......\n";
-    std::cerr << "*** " << "Clusters with less than 10k reads will not be output ......\n";
+    std::cout << "*** " << "Transcript identification and quantification ......\n";
+    std::cout << "*** " << "Only output the completion status of the larger clusters ......\n";
+    std::cout << "*** " << "Clusters with less than 10k reads will not be output ......\n";
     start = std::chrono::high_resolution_clock::now();
     for (const auto& i:Group_idx) {
         futures.emplace_back(BroCOLIpool.enqueue([&, i]() { 
@@ -5132,7 +5444,8 @@ int main(int argc, char* argv[])
                 std::ref(output_file_name),
                 std::ref(BroCOLIfile.file_barcodeSet),
                 single_exon_edge,
-                Read_count);
+                Read_count,
+                do_umi_delete);
             }));
     }
     
@@ -5141,12 +5454,18 @@ int main(int argc, char* argv[])
     }
     end = std::chrono::high_resolution_clock::now();
     diff = end - start;
-    std::cerr << "Identification and quantification cost time = " << diff.count() << " s\n";
+    std::cout << "Identification and quantification cost time = " << diff.count() << " s\n";
 
     gtf_file.close();
     trace_file.close();
-    std::cerr << "*** BroCOLI quantification has been successfully completed! ***\n";
+    std::cout << "*** BroCOLI quantification has been successfully completed! ***\n";
 
+    std::cout << "*** Rewriting the quantification file ......\n";
+    for (int i = 0; i < BroCOLIfile.FileNo; i++) {
+        rewrite_quantification_file_sc(output_file_name, i, 0);
+        rewrite_quantification_file_sc(output_file_name, i, 1);        
+    }
+    std::cout << "BroCOLI has successfully concluded.\n";
 
     return 0;
 }
