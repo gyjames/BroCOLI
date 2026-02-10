@@ -1,6 +1,6 @@
 # BroCOLI : Bron-Kerbosch calibrator of Long-read Isoform
 [![Lifecycle: maturing](https://img.shields.io/badge/lifecycle-stable-brightgreen.svg)](https://www.tidyverse.org/lifecycle/#stable)
-[![Maintained?](https://img.shields.io/badge/Maintained%3F-Yes-orange)](https://github.com/gyjames/BroCOLI/graphs/contributors)
+[![Maintained?](https://img.shields.io/badge/Maintained%3F-Yes-red)](https://github.com/gyjames/BroCOLI/graphs/contributors)
 [![Install](https://img.shields.io/badge/Install-Github-blue)](#installation)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv2-ff6b35.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html)
 
