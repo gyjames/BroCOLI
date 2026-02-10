@@ -34,8 +34,7 @@ Once compiled, two executables ( **BroCOLI_bulk** and **BroCOLI_sc** ) will appe
 ```
 
 ## 📘Documentation
-
-Full documentation can be found [here](https://weiwei4396.github.io/BroCOLI/).
+Please check out the documentation and tutorials at [BroCOLI Documentation](https://weiwei4396.github.io/BroCOLI/).
 
 ## Reference
 
