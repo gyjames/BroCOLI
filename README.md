@@ -18,7 +18,7 @@ BroCOLI (Bron-Kerbosch calibrator of Long-read Isoform) leverages efficient algo
 ## Requirements
 BroCOLI requires a **C++11-compatible compiler** (e.g., g++ 4.8 or later).
 
-## 🛠️ Installation
+## 🛠️Installation
 In order to compile the BroCOLI source in this GitHub repository the following steps can be taken:
 ```console
 git clone https://github.com/gyjames/BroCOLI.git
@@ -33,7 +33,7 @@ Once compiled, two executables ( **BroCOLI_bulk** and **BroCOLI_sc** ) will appe
 ./BroCOLI_sc -h
 ```
 
-## 📘 Documentation
+## 📘Documentation
 
 Full documentation can be found [here](https://weiwei4396.github.io/BroCOLI/).
 
