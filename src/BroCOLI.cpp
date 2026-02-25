@@ -28,9 +28,10 @@
 #include <atomic>
 #include "thread_pool_executor.hpp"
 #include <chrono>
-#include <edlib.h>
 
 std::mutex updatedGtfMutex;
+std::mutex isoformCountMutex;
+std::mutex geneCountMutex;
 std::mutex traceMutex;
 std::mutex bigMutex;
 
@@ -39,230 +40,45 @@ struct Split_Result{
     std::vector<std::string> tokens;
     int read_length = 0;
     int token_count = 0;
-
-    std::string read_barcode;
-    std::string read_umi;
 };
 
 
-inline void get_string_split_sc_fast(const std::string& s, char delimiter, 
-                                     const std::string& umi_tag_fourth, const std::string& barcode_tag_fourth,
-                                     Split_Result& r) {
-
-    r.read_name.clear(); r.read_umi.clear(); r.read_barcode.clear();
-    r.read_length = 0; r.token_count = 0;
-    
+inline void get_string_split_fast(const std::string& s, Split_Result& r) {
     if (r.tokens.size() < 6) r.tokens.resize(6);
 
+    r.read_length = 0;
+    r.token_count = 0;
     const char* base = s.data();
     const size_t n = s.size();
+    int field = 0;
     size_t start = 0;
-    int field_idx = 0; 
-    bool is_flexiplex = false;
 
-    const size_t umi_tag_len = umi_tag_fourth.size();
-    const size_t barcode_tag_len = barcode_tag_fourth.size();
-
-    for (size_t i = 0; i <= n; ++i) {
-
-        if (i == n || base[i] == delimiter) {
+    for (size_t i = 0; i <= n && field <= 9; ++i) {
+        if (i == n || base[i] == '\t') {
             const char* p = base + start;
             const size_t len = i - start;
 
-            // --- 第 1 列 (field 0): read_name 及 Flexiplex 预检查 ---
-            if (field_idx == 0) {
+            if (field == 0) {
                 r.read_name.assign(p, len);
-
-                // Flexiplex 逻辑检查: 包含 "-1_"
-                if (r.read_name.find("#") != std::string::npos) {
-                    size_t first_underscore = r.read_name.find('_');
-                    if (first_underscore != std::string::npos) {
-                        std::string barcode_part = r.read_name.substr(0, first_underscore);
-
-                        if (barcode_part.size() >= 2 && 
-                            barcode_part.compare(barcode_part.size() - 2, 2, "-1") == 0) {
-                             barcode_part.resize(barcode_part.size() - 2);
-                        }
-                        r.read_barcode = barcode_part;
-
-                        size_t hash_pos = r.read_name.find('#', first_underscore + 1);
-                        if (hash_pos != std::string::npos) {
-                            r.read_umi = r.read_name.substr(first_underscore + 1, hash_pos - (first_underscore + 1));
-                        }
-                    }
-                }
-
-                // 如果成功提取了 Flexiplex 信息，更新 flag 并重组 read_name
-                if (!r.read_umi.empty() && !r.read_barcode.empty()) {
-                    is_flexiplex = true;
-                    r.read_name = r.read_barcode + "-" + r.read_umi;
-                }
-            }
-            // --- 第 3 到 7 列 (field 2-6): 提取 tokens ---
-            // 对应原逻辑: 2 < number < 8 (即 number 为 3,4,5,6,7)
-            else if (field_idx >= 1 && field_idx <= 5) {
+            } 
+            else if (field < 7) {  
                 if (r.token_count < (int)r.tokens.size()) {
                     r.tokens[r.token_count].assign(p, len);
                     ++r.token_count;
                 }
+            } 
+            else if (field == 9) {
+                r.read_length = (int)len;
             }
-            // --- 第 11 列 (field 10): read_length ---
-            else if (field_idx == 10) {
-                r.read_length = (int)len; // 注意：原代码用的 token.size() 即字符串长度
-            }
-            // --- 其他列 (Sicelore 标签检查) ---
-            else {
-                // 如果是 Flexiplex 模式，原逻辑在 number > 11 后直接返回(忽略后续)
-                if (is_flexiplex) {
-                    if (field_idx > 10) { 
-                        // 相当于原代码的 return read_result;
-                        // 为了保持单循环结构，我们直接 break 循环
-                        break; 
-                    }
-                } 
-                else {
-                    // 非 Flexiplex 模式，检查剩余列的 Tag
-                    if (len > 11) {
-                        // 检查 UMI Tag 前缀
-                        if (len >= umi_tag_len && std::strncmp(p, umi_tag_fourth.c_str(), umi_tag_len) == 0) {
-                            // r.read_umi.assign(p, len);
-                            r.read_umi.assign(p + umi_tag_len, len - umi_tag_len);
-                        }
-                        // 检查 Barcode Tag 前缀
-                        else if (len >= barcode_tag_len && std::strncmp(p, barcode_tag_fourth.c_str(), barcode_tag_len) == 0) {
-                            // r.read_barcode.assign(p, len);
-                            r.read_barcode.assign(p + barcode_tag_len, len - barcode_tag_len);
-                        }
-                    }
-                }
-            }
-            // 准备下一次迭代
+            ++field;
             start = i + 1;
-            ++field_idx;
         }
-    }
-    // 循环结束后，如果是 Sicelore 模式且找到了 UMI/Barcode，重组 read_name
-    if (!is_flexiplex && !r.read_umi.empty() && !r.read_barcode.empty()) {
-        r.read_name = r.read_barcode + "-" + r.read_umi;
     }
 }
 
-
-int IntervalIntersection(std::vector<std::array<int,2>> firstList, std::vector<std::array<int,2>> secondList) {
-    std::vector<std::array<int,2>> res; //定义返回的结果;
-    int result = 0;
-    int i = 0;
-    int j = 0;
-
-    while(i < firstList.size() && j < secondList.size()){
-        int start = std::max(firstList[i][0], secondList[j][0]);
-        int end = std::min(firstList[i][1], secondList[j][1]);
-        if(start <= end) {
-            res.push_back({start, end});
-            result = result + (end-start+1);       
-        }
-        if(firstList[i][1] < secondList[j][1]){
-            i++;
-        }else{
-            j++;
-        }
-    }
-    return result;
-}
-
-
-int IntervalMerge(std::vector<std::array<int,2>> firstList, std::vector<std::array<int,2>> secondList) {
-
-    std::vector<std::array<int,2>> intervals;
-    intervals.resize(firstList.size()+secondList.size());
-    merge(firstList.begin(), firstList.end(), secondList.begin(), secondList.end(), intervals.begin());
-    
-    sort(intervals.begin(), intervals.end()); 
-    std::vector<std::array<int,2>> merged; 
-    int result = 0;
-    
-    for (int i=0; i<intervals.size();) {  
-        int left = intervals[i][0];
-        int right = intervals[i][1];
-        while (i+1 < intervals.size() && right >= intervals[i+1][0]){
-            right = std::max(right, intervals[i+1][1]);
-            i++;
-        }
-        merged.push_back({left, right});
-        result = result + (right-left+1);
-        i++;
-    }
-    return result;
-}
-
-
-int findNonOverlappingIntervals(const std::vector<std::array<int, 2>>& intervals1, const std::vector<std::array<int, 2>>& intervals2) {
-    std::vector<std::array<int, 2>> result;
-    int finally_number = 0;
-
-    for (const auto& interval1 : intervals1) {
-        bool hasOverlap = false;
-        for (const auto& interval2 : intervals2) {
-            if (!(interval1[1] < interval2[0] || interval1[0] > interval2[1])) {
-
-                hasOverlap = true;
-                break;
-            }
-        }
-        if (!hasOverlap) {
-            result.push_back(interval1);
-            finally_number = finally_number + (interval1[1]-interval1[0]+1);
-        }
-    }
-    for (const auto& interval2 : intervals2) {
-        bool hasOverlap = false;
-
-        for (const auto& interval1 : intervals1) {
-            if (!(interval2[1] < interval1[0] || interval2[0] > interval1[1])) {
-
-                hasOverlap = true;
-                break;
-            }
-        }
-        if (!hasOverlap) {
-            result.push_back(interval2);
-            finally_number = finally_number + (interval2[1]-interval2[0]+1);
-        }
-    }
-    return finally_number;
-}
-
-int IntervalMinDistance(const std::vector<std::array<int,2>>& firstList,
-                        std::array<int,2> secondList) {
-    int left_min  = INT_MAX;
-    int right_min = INT_MAX;
-    for (const auto& a : firstList) {
-        left_min  = std::min(left_min,  std::abs(secondList[0] - a[0]));
-        right_min = std::min(right_min, std::abs(secondList[1] - a[1]));
-    }
-    return std::min(left_min, right_min);
-}
-
-std::vector<std::array<int,2>> mergeIntervals(std::vector<std::array<int,2>>& intervals) {
-    if (intervals.empty()) return {};
-    std::sort(intervals.begin(), intervals.end(),
-              [](const std::array<int,2>& a, const std::array<int,2>& b) { return a[0] < b[0]; });
-    std::vector<std::array<int,2>> merged;
-    merged.push_back(intervals[0]);
-
-    for (size_t i = 1; i < intervals.size(); ++i) {
-        if (intervals[i][0] <= merged.back()[1]) {
-            merged.back()[1] = std::max(merged.back()[1], intervals[i][1]);
-        } else {
-            merged.push_back(intervals[i]);
-        }
-    }
-    return merged;
-}
 
 
 int get_read_match_gene_length(std::vector<std::array<int,2>> CIGAR_vector){
-
     int Mlength = 0;
     for (auto each_array : CIGAR_vector) {
         Mlength = Mlength + (each_array[1] - each_array[0]);
@@ -275,6 +91,7 @@ struct Read_intervals_and_Mlength{
     std::vector<std::array<int,2>> ReadIntervals;
     int ReadMatchLength;
 };
+
 
 Read_intervals_and_Mlength get_read_intervals_fast(const std::string& CIGARvalue, const std::string& initpos){
 
@@ -312,37 +129,146 @@ Read_intervals_and_Mlength get_read_intervals_fast(const std::string& CIGARvalue
 
 
 
-struct Reads_Clusters {
+int IntervalIntersection(const std::vector<std::array<int,2>>& firstList, const std::vector<std::array<int,2>>& secondList) {
+    // std::vector<std::array<int,2>> res;
+    int result = 0;
+    int i = 0;
+    int j = 0;
 
+    while(i < firstList.size() && j < secondList.size()){
+        int start = std::max(firstList[i][0], secondList[j][0]);
+        int end = std::min(firstList[i][1], secondList[j][1]);
+        if(start <= end){
+            // res.push_back({start, end});
+            result = result + (end-start+1);       
+        }
+        if(firstList[i][1] < secondList[j][1]){
+            i++;
+        }else{
+            j++;
+        }
+    }
+    return result;
+}
+
+
+int IntervalMinDistance(const std::vector<std::array<int,2>>& firstList,
+                        std::array<int,2> secondList) {
+    int left_min  = INT_MAX;
+    int right_min = INT_MAX;
+    for (const auto& a : firstList) {
+        left_min  = std::min(left_min,  std::abs(secondList[0] - a[0]));
+        right_min = std::min(right_min, std::abs(secondList[1] - a[1]));
+    }
+    return std::min(left_min, right_min);
+}
+
+
+
+
+int IntervalMerge(const std::vector<std::array<int,2>>& firstList, const std::vector<std::array<int,2>>& secondList) {
+    //将两个序列集合合并为一个;
+    std::vector<std::array<int,2>> intervals;
+    intervals.resize(firstList.size()+secondList.size());
+    merge(firstList.begin(), firstList.end(), secondList.begin(), secondList.end(), intervals.begin());
+    
+    sort(intervals.begin(), intervals.end()); //对所有的区间从小到大排序;
+    // std::vector<std::array<int,2>> merged; //初始化输出结果;
+    int result = 0;
+    
+    for (int i=0; i<intervals.size();) {  
+        int left = intervals[i][0];
+        int right = intervals[i][1];
+        while (i+1 < intervals.size() && right >= intervals[i+1][0]){
+            right = std::max(right, intervals[i+1][1]);
+            i++;
+        }
+        // merged.push_back({left, right});
+        result = result + (right-left+1);
+        i++;
+    }
+    return result;
+}
+
+
+int findNonOverlappingIntervals(const std::vector<std::array<int, 2>>& intervals1, const std::vector<std::array<int, 2>>& intervals2) {
+    // std::vector<std::array<int, 2>> result;
+    int finally_number = 0;
+    for (const auto& interval1 : intervals1) {
+        bool hasOverlap = false;
+        for (const auto& interval2 : intervals2) {
+            if (!(interval1[1] < interval2[0] || interval1[0] > interval2[1])) {
+                // Overlapping, don't include this interval
+                hasOverlap = true;
+                break;
+            }
+        }
+        if (!hasOverlap) {
+            // result.push_back(interval1);
+            finally_number = finally_number + (interval1[1]-interval1[0]+1);
+        }
+    }
+    for (const auto& interval2 : intervals2) {
+        bool hasOverlap = false;
+
+        for (const auto& interval1 : intervals1) {
+            if (!(interval2[1] < interval1[0] || interval2[0] > interval1[1])) {
+                // Overlapping, don't include this interval
+                hasOverlap = true;
+                break;
+            }
+        }
+        if (!hasOverlap) {
+            // result.push_back(interval2);
+            finally_number = finally_number + (interval2[1]-interval2[0]+1);
+        }
+    }
+    return finally_number;
+}
+
+
+std::vector<std::array<int,2>> mergeIntervals(std::vector<std::array<int,2>>& intervals) {
+    if (intervals.empty()) return {};
+    std::sort(intervals.begin(), intervals.end(),
+              [](const std::array<int,2>& a, const std::array<int,2>& b) { return a[0] < b[0]; });
+    std::vector<std::array<int,2>> merged; merged.reserve(intervals.size()); 
+    merged.emplace_back(intervals[0]);   
+
+    for (size_t i = 1; i < intervals.size(); ++i) {
+        if (intervals[i][0] <= merged.back()[1]) {
+            merged.back()[1] = std::max(merged.back()[1], intervals[i][1]);
+        } else {
+            merged.emplace_back(intervals[i]);
+        }
+    }
+    return merged;
+}
+
+
+struct Reads_Clusters {
     std::streampos lastPos;
     std::streampos newPos;
     std::map<std::string, std::vector<std::array<int,2>>> Mymap;
-    std::unordered_map<std::string, std::string> ReadsBarcode;
-    std::unordered_map<std::string, std::string> ReadsUMI;
     std::map<std::string, int> Mylen;
     std::map<std::string, int> MyFlag;
     std::string SetRef_name;
     std::array<int,2> ClusterCoverage;
+
+    int MAPQ = 0;
     int mapqless1 = 0;
-    int sameumi = 0;
     int mappingdiff = 0;
     int surveyNum = 0;    
 }; 
 
 
-Reads_Clusters get_each_cluster_reads_sc(std::ifstream& samfile, std::streampos CurrentPos, std::streampos EndPos, const int& MAPQ,
-                                        const std::string& umi_tag_third, const std::string& barcode_tag_third) {
+Reads_Clusters get_each_cluster_reads(std::ifstream& samfile, std::streampos CurrentPos, std::streampos EndPos, const int& MAPQ) {
 
-    Reads_Clusters NewCluster = {};
+    Reads_Clusters NewCluster {};
     std::map<std::string, std::vector<std::array<int,2>>> read_informs;
     std::map<std::string, int> read_len;
-    std::map<std::string, int> read_flag;
+    std::map<std::string, int> read_flag; // 1 + ; 0 -
 
-    std::unordered_map<std::string, int> BarcodeUMI2reads;
-    std::unordered_map<std::string, std::string> read_of_Barcode;
-    std::unordered_map<std::string, std::string> read_of_UMI;
-
-    std::string line;
+    std::string line; line.reserve(4096);
     std::string now_gene;
     std::string last_chr;
 
@@ -353,44 +279,53 @@ Reads_Clusters get_each_cluster_reads_sc(std::ifstream& samfile, std::streampos 
     int read_mapq {0};
     int Flag {0};
 
-    Split_Result This_Line;
+    Split_Result This_Line {};
     This_Line.tokens.resize(6);
     Read_intervals_and_Mlength CIGAR_interval {};
 
-	while (getline(samfile, line))
-	{
+	while (getline(samfile, line)) {
+
         earlyPos = CurrentPos; 
         CurrentPos = samfile.tellg();
 
         if (line[0] != '@') {
             NewCluster.surveyNum = NewCluster.surveyNum + 1;
-            
-            get_string_split_sc_fast(line, '\t', umi_tag_third, barcode_tag_third, This_Line); 
+            get_string_split_fast(line, This_Line); // This_Line = get_string_split(line, '\t');
 
-            if (This_Line.read_barcode.size() == 0 || This_Line.read_umi.size() == 0) continue;
-
-            int read_mapq = std::stoi(This_Line.tokens[3]);
-            int Flag = std::stoi(This_Line.tokens[0]);
+            read_mapq = std::stoi(This_Line.tokens[3]) ;
+            Flag = std::stoi(This_Line.tokens[0]);
 
             if (read_mapq >= MAPQ and (Flag & 0x900)==0) {
+                
+                CIGAR_interval = get_read_intervals_fast(This_Line.tokens[4], This_Line.tokens[2]);
+                if (This_Line.read_length == CIGAR_interval.ReadMatchLength) {
 
-                if ( (BarcodeUMI2reads.find(This_Line.read_name) == BarcodeUMI2reads.end()) || (BarcodeUMI2reads[This_Line.read_name] < This_Line.read_length) ) {
-                    
-                    BarcodeUMI2reads[This_Line.read_name] = This_Line.read_length;         
-                    CIGAR_interval = get_read_intervals_fast(This_Line.tokens[4], This_Line.tokens[2]);
-                    if (This_Line.read_length == CIGAR_interval.ReadMatchLength) {
+                    now_gene = This_Line.tokens[1];
+                    int read_in_gene_begin_pos = std::stoi(This_Line.tokens[2]);
+                    std::array<int,2> lastEle = CIGAR_interval.ReadIntervals.back();
+                    int read_in_gene_end_pos = lastEle[1] - 1;
 
-                        now_gene = This_Line.tokens[1];
-                        int read_in_gene_begin_pos = std::stoi(This_Line.tokens[2]);
-                        std::array<int,2> lastEle = CIGAR_interval.ReadIntervals.back();
-                        int read_in_gene_end_pos = lastEle[1] - 1;
+                    if (early_begin_pos == 0) {
+                        early_begin_pos = read_in_gene_begin_pos;
+                        early_end_pos = read_in_gene_end_pos;
+                        last_chr = now_gene;
+                    } else {
 
-                        if (early_begin_pos == 0) {
-                            early_begin_pos = read_in_gene_begin_pos;
-                            early_end_pos = read_in_gene_end_pos;
-                            last_chr = now_gene;
-                        } else {
-                            if (now_gene != last_chr){
+                        if (now_gene != last_chr){
+                            NewCluster.lastPos = earlyPos;
+                            NewCluster.newPos = CurrentPos;
+                            NewCluster.Mymap = read_informs;
+                            NewCluster.Mylen = read_len;
+                            NewCluster.MyFlag = read_flag;
+                            NewCluster.ClusterCoverage[0] = early_begin_pos;
+                            NewCluster.ClusterCoverage[1] = early_end_pos;
+                            NewCluster.SetRef_name = last_chr;
+                            NewCluster.surveyNum = NewCluster.surveyNum - 1;
+                            break;
+                        } else{
+
+                            if ((read_in_gene_begin_pos - early_end_pos > 0) || (early_begin_pos - read_in_gene_end_pos > 0)){
+
                                 NewCluster.lastPos = earlyPos;
                                 NewCluster.newPos = CurrentPos;
                                 NewCluster.Mymap = read_informs;
@@ -399,51 +334,30 @@ Reads_Clusters get_each_cluster_reads_sc(std::ifstream& samfile, std::streampos 
                                 NewCluster.ClusterCoverage[0] = early_begin_pos;
                                 NewCluster.ClusterCoverage[1] = early_end_pos;
                                 NewCluster.SetRef_name = last_chr;
-                                NewCluster.ReadsBarcode = read_of_Barcode;
-                                NewCluster.ReadsUMI = read_of_UMI;
                                 NewCluster.surveyNum = NewCluster.surveyNum - 1;
                                 break;
-                            } else{
-                                if ((read_in_gene_begin_pos - early_end_pos > 0) || (early_begin_pos - read_in_gene_end_pos > 0)) {
-                                    NewCluster.lastPos = earlyPos;
-                                    NewCluster.newPos = CurrentPos;
-                                    NewCluster.Mymap = read_informs;
-                                    NewCluster.Mylen = read_len;
-                                    NewCluster.MyFlag = read_flag;
-                                    NewCluster.ClusterCoverage[0] = early_begin_pos;
-                                    NewCluster.ClusterCoverage[1] = early_end_pos;
-                                    NewCluster.SetRef_name = last_chr;
-                                    NewCluster.ReadsBarcode = read_of_Barcode;
-                                    NewCluster.ReadsUMI = read_of_UMI;
-                                    NewCluster.surveyNum = NewCluster.surveyNum - 1;
-                                    break;
-                                } else {
-                                    early_begin_pos = (read_in_gene_begin_pos>early_begin_pos)?early_begin_pos:read_in_gene_begin_pos;
-                                    early_end_pos = (read_in_gene_end_pos>early_end_pos)?read_in_gene_end_pos:early_end_pos;
-                                    last_chr = now_gene;
-                                }
+
+                            } else {
+                                early_begin_pos = (read_in_gene_begin_pos>early_begin_pos)?early_begin_pos:read_in_gene_begin_pos;
+                                early_end_pos = (read_in_gene_end_pos>early_end_pos)?read_in_gene_end_pos:early_end_pos;
+                                last_chr = now_gene;
                             }
                         }
-                        read_informs[This_Line.read_name] = CIGAR_interval.ReadIntervals;
-                        read_of_Barcode[This_Line.read_name] = This_Line.read_barcode;
-                        read_of_UMI[This_Line.read_name] = This_Line.read_umi;
-                        read_len[This_Line.read_name] = This_Line.read_length;
-
-                        if (Flag & 16) {
-                            read_flag[This_Line.read_name] = 0; // -
-                        } else {
-                            read_flag[This_Line.read_name] = 1; // +
-                        }
-
+                    }
+                    read_informs[This_Line.read_name] = CIGAR_interval.ReadIntervals;
+                    read_len[This_Line.read_name] = This_Line.read_length;
+                    
+                    if (Flag & 16) {
+                        read_flag[This_Line.read_name] = 0; // -
                     } else {
-                        NewCluster.mappingdiff = NewCluster.mappingdiff + 1;
-                    }                                     
+                        read_flag[This_Line.read_name] = 1; // +
+                    }
+
                 } else {
-                    //UMI相同的reads个数;
-                    NewCluster.sameumi = NewCluster.sameumi + 1;
+                    NewCluster.mappingdiff = NewCluster.mappingdiff + 1;
                 }
+                
             } else {
-                //mapping quality小于1;
                 NewCluster.mapqless1 = NewCluster.mapqless1 + 1;
             }
         }
@@ -462,91 +376,65 @@ Reads_Clusters get_each_cluster_reads_sc(std::ifstream& samfile, std::streampos 
     NewCluster.MyFlag = read_flag;
     NewCluster.ClusterCoverage[0] = early_begin_pos;
     NewCluster.ClusterCoverage[1] = early_end_pos;
-    NewCluster.SetRef_name = last_chr;   
-    NewCluster.ReadsBarcode = read_of_Barcode;
-    NewCluster.ReadsUMI = read_of_UMI;
+    NewCluster.SetRef_name = last_chr;    
+
     return NewCluster;
 }
 
 
-struct SpliceJs {
 
+struct SpliceJs {
     std::unordered_map<std::string, std::vector<std::array<int,2>>> reads_SJs;
     std::unordered_map<std::string, std::vector<std::array<int,2>>> reads_SJs_left;
     std::unordered_map<std::string, std::vector<std::array<int,2>>> reads_SJs_right;
     std::unordered_map<std::string, std::array<int,2>> reads_begin_end;
     std::unordered_map<std::string, std::array<int,2>> reads_single_exon;
-
 }; 
 
 
 SpliceJs get_reads_allSJs(std::map<std::string, std::vector<std::array<int,2>>>& RCs, int SJD) {
+    SpliceJs out;
 
-    SpliceJs NewSJs = {};
-    std::unordered_map<std::string, std::vector<std::array<int,2>>> AllRead_SJs;
-    std::unordered_map<std::string, std::vector<std::array<int,2>>> AllRead_SJs_left;
-    std::unordered_map<std::string, std::vector<std::array<int,2>>> AllRead_SJs_right;
-    std::unordered_map<std::string, std::array<int,2>> AllRead_begin_end;
-    std::unordered_map<std::string, std::array<int,2>> AllRead_SingleExon;
+    out.reads_SJs.reserve(RCs.size());
+    out.reads_SJs_left.reserve(RCs.size());
+    out.reads_SJs_right.reserve(RCs.size());
+    out.reads_begin_end.reserve(RCs.size());
+    out.reads_single_exon.reserve(RCs.size());
 
-    for (const auto &pair : RCs) {
+    for (const auto& pair : RCs) {
+        const std::string& Rname = pair.first;
+        const auto& RMs = pair.second;
+        if (RMs.size() == 0) continue;
 
-        std::string Rname = pair.first; 
-        std::vector<std::array<int,2>> RMs = pair.second;
-        std::vector<std::array<int,2>> ReadSJs;
-        std::vector<std::array<int,2>> ReadSJs_left;
-        std::vector<std::array<int,2>> ReadSJs_right;
-        std::array<int,2> Read_SingleExon;
-        std::array<int,2> Read_begin_end;
+        std::vector<std::array<int,2>> ReadSJs, ReadSJs_left, ReadSJs_right;
+        ReadSJs.reserve(RMs.size());
+        ReadSJs_left.reserve(RMs.size());
+        ReadSJs_right.reserve(RMs.size());
 
-        for (auto it = RMs.begin(); it!= RMs.end()-1; it++) {
-            
-            if (it == RMs.begin()){
-                Read_begin_end[0] = (*(it))[0];
-            }
-            if (it== RMs.end()-2){
-                Read_begin_end[1] = (*(it+1))[1];
-            }
-            int later = (*(it+1))[0];
-            int former = (*(it))[1];
+        std::array<int,2> Read_begin_end{{RMs.front()[0], RMs.back()[1]}};
+
+        for (size_t idx = 0; idx + 1 < RMs.size(); ++idx) {
+            int former = RMs[idx][1];
+            int later  = RMs[idx + 1][0];
+
             if (later - former > SJD) {
-
-                std::array<int,2> eachSJ;
-                eachSJ[0] = former;
-                eachSJ[1] = later - 1;
-                ReadSJs.push_back(eachSJ);
-
-                std::array<int,2> eachSJ_left;
-                eachSJ_left[0] = (*(it))[0];
-                eachSJ_left[1] = former - 1;
-                ReadSJs_left.push_back(eachSJ_left);
-
-                std::array<int,2> eachSJ_right;
-                eachSJ_right[0] = later;
-                eachSJ_right[1] = (*(it+1))[1];
-                ReadSJs_right.push_back(eachSJ_right);
+                ReadSJs.emplace_back(std::array<int,2>{{former, later - 1}});
+                ReadSJs_left.emplace_back(std::array<int,2>{{RMs[idx][0], former - 1}});
+                ReadSJs_right.emplace_back(std::array<int,2>{{later, RMs[idx + 1][1]}});
             }
         }
 
-        if (ReadSJs.size() == 0) {
-            Read_SingleExon[0] = (*RMs.begin())[0];
-            Read_SingleExon[1] = (*(RMs.end()-1))[1] - 1;
-            AllRead_SingleExon[Rname] = Read_SingleExon;
+        if (ReadSJs.empty()) {
+            std::array<int,2> single{{RMs.front()[0], RMs.back()[1] - 1}};
+            out.reads_single_exon.emplace(Rname, single);
         } else {
-
-            AllRead_SJs[Rname] = ReadSJs;
-            AllRead_SJs_left[Rname] = ReadSJs_left;
-            AllRead_SJs_right[Rname] = ReadSJs_right;
-            AllRead_begin_end[Rname] = Read_begin_end;
+            out.reads_SJs.emplace(Rname, std::move(ReadSJs));
+            out.reads_SJs_left.emplace(Rname, std::move(ReadSJs_left));
+            out.reads_SJs_right.emplace(Rname, std::move(ReadSJs_right));
+            out.reads_begin_end.emplace(Rname, Read_begin_end);
         }
     }
-
-    NewSJs.reads_SJs = AllRead_SJs;
-    NewSJs.reads_SJs_left = AllRead_SJs_left;
-    NewSJs.reads_SJs_right = AllRead_SJs_right;
-    NewSJs.reads_begin_end = AllRead_begin_end;
-    NewSJs.reads_single_exon = AllRead_SingleExon;
-    return NewSJs;
+    return out;
 }
 
 
@@ -699,7 +587,7 @@ unGTF get_gtf_annotation(std::string& GTFFile_name) {
             }
 
             for (const auto& eachGene:eachChr.second) {
-                size_t pos = eachGene.first.find('|');
+                pos = eachGene.first.find('|');
                 now_gene_name = eachGene.first.substr(0, pos);
                 Strand = GTFAll_Info.GTF_transcript_strand[now_chr][eachGene.first];
 
@@ -792,7 +680,9 @@ unGTF get_gtf_annotation(std::string& GTFFile_name) {
 
 
 
-struct GTFsj {
+
+
+struct GTFsj{
     std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::array<int,2>>>> mSJs;
     std::unordered_map<std::string, std::unordered_map<std::string, std::array<int,2>>> mSJsBE;
     std::unordered_map<std::string, std::unordered_map<std::string, std::array<int,2>>> SE;
@@ -882,8 +772,6 @@ GTFsj get_SJs_SE(std::unordered_map<std::string, std::unordered_map<std::string,
 
 
 
-
-
 std::unordered_map<std::string, std::string> Read_fasta_file(std::string& fastafile_name){
 
     std::unordered_map<std::string, std::string> chrgeneString;
@@ -897,7 +785,7 @@ std::unordered_map<std::string, std::string> Read_fasta_file(std::string& fastaf
 	FastaFile.open(fastafile_name);
 
 	if (!FastaFile.is_open()) {
-		std::cout << "We can't open Fasta file !" << fastafile_name << std::endl;
+		std::cerr << "We can't open Fasta file !" << fastafile_name << std::endl;
 		exit(EXIT_FAILURE);
 	}
 
@@ -910,7 +798,7 @@ std::unordered_map<std::string, std::string> Read_fasta_file(std::string& fastaf
     while (std::getline(FastaFile, line))
     {      
         if (line[0] == '>'){
-            //第一行;
+
             if (!ChrGeneName.empty()){
                 concatenatedString = accumulatedStringStream.str();
                 chrgeneString[ChrGeneName] = concatenatedString;
@@ -933,6 +821,7 @@ std::unordered_map<std::string, std::string> Read_fasta_file(std::string& fastaf
     }
 
     if (!ChrGeneName.empty()) {
+
         concatenatedString = accumulatedStringStream.str();
         chrgeneString[ChrGeneName] = concatenatedString;
     }
@@ -942,14 +831,14 @@ std::unordered_map<std::string, std::string> Read_fasta_file(std::string& fastaf
         std::cout << "***** The Fasta file has been read to the end ! *****" << std::endl;
     } 
     else if (FastaFile.fail()) {
-        std::cout << "File FALSE !" << std::endl;
+        std::cerr << "File FALSE !" << std::endl;
     }
-    else {std::cout << "unkown reason" << std::endl;}
+    else {std::cerr << "unkown reason" << std::endl;}
 
-    //关闭文件;
     FastaFile.close();
     return chrgeneString;
 }
+
 
 
 bool ifSjNoError(const std::vector<std::array<int,2>>& leftSj, const std::vector<std::array<int,2>>& rightSj, int& Sj_Number) {
@@ -974,6 +863,7 @@ int ifSjSignal(std::string& Fasta_chr, const std::array<int,2>& Sj_Array, int& i
         std::exit(EXIT_FAILURE);
     }
     std::string signal1 = Fasta_chr.substr(pos1, 2);
+
 
     size_t pos2 = Sj_Array[1] - 2;
     if (pos2 + 2 > Fasta_chr.size()) {
@@ -1017,13 +907,12 @@ static struct option long_options[] = {
     {"fasta", required_argument, 0, 'f'},
     {"gtf", required_argument, 0, 'g'},
     {"output", required_argument, 0, 'o'},
+    {"mode", required_argument, 0, 'm'},
     {"SJDistance", required_argument, 0, 'j'},  
     {"support", required_argument, 0, 'n'},   
     {"single_exon_boundary", required_argument, 0, 'e'},
     {"graph_distance", required_argument, 0, 'd'},  
     {"thread", required_argument, 0, 't'}, 
-    {"umi", required_argument, 0, 'u'},
-    {"barcode", required_argument, 0, 'b'},
     {"output_min_read_count", required_argument, 0, 'r'}, 
     {"help", no_argument, 0, 'h'},
     {0, 0, 0, 0}  
@@ -1033,13 +922,10 @@ bool directoryExists(const std::string& path) {
     struct stat info;
 
     if (stat(path.c_str(), &info) != 0) {
-
         return false;
     } else if (info.st_mode & S_IFDIR) {
-
         return true;
     } else {
-
         return false;
     }
 }
@@ -1054,7 +940,6 @@ bool createDirectory(const std::string& path) {
 }
 
 std::string joinPath(const std::string& directory, const std::string& filename) {
-    
     if (directory.back() == '/') {
         return directory + filename;  
     } else {
@@ -1073,20 +958,18 @@ void print_usage(const char* program_name) {
     std::cout << "  -f, --fasta                 FASTA file path. FASTA file requires the chromosome names to match the GTF file. (required)" << std::endl;
     std::cout << "  -g, --gtf                   input annotation file in GTF format. (optional, Recommendation provided)" << std::endl;
     std::cout << "  -o, --output                output folder path. (required)" << std::endl;
-    std::cout << "  -m, --mapq                  Mapping quality threshold. (optional, default:0)" << std::endl;
+    std::cout << "  -m, --mapq                  Mapping quality." << std::endl;
     std::cout << "  -j, --SJDistance            the minimum distance determined as intron. (optional, default:18)" << std::endl;
     std::cout << "  -n, --support               min perfect read count for all splice junctions of novel isoform. (optional, default:2)" << std::endl;
     std::cout << "  -e, --single_exon_boundary  belongs to the isoform scope of a single exon. (optional, default:60)" << std::endl;
     std::cout << "  -d, --graph_distance        the distance threshold for constructing the isoform candidate distance graph. (optional, default:60)" << std::endl;
-    std::cout << "  -t, --thread                thread number (optional, default:8)." << std::endl;
-    std::cout << "  -u, --umi                   umi_tag (optional, default:U8:Z:)." << std::endl;
-    std::cout << "  -b, --barcode               barcode_tag (optional, default:BC:Z:)." << std::endl;
+    std::cout << "  -t, --thread                thread number. (optional, default:8)" << std::endl;
     std::cout << "  -r, --output_min_read_count the minimum number of transcripts in the output results. (optional, int, default:1)" << std::endl;
-    std::cout << "  -k, --do_umi_delete         Perform the umi deduplication operation." << std::endl;
     std::cout << "  -h, --help                  show this help information." << std::endl;
 }
 
-std::vector<std::string> check_catalog_exist(const std::string& output_path) {
+std::vector<std::string> check_catalog_exist(const std::string& output_path,
+                                            std::vector<std::string>& samFileVec) {
     std::vector<std::string> outputFileVector;
 
     if (!directoryExists(output_path)) {
@@ -1102,20 +985,57 @@ std::vector<std::string> check_catalog_exist(const std::string& output_path) {
         std::cout << "Directory already exists: " << output_path << std::endl;
     } 
 
-    std::string updatedGtfPath = joinPath(output_path, "updated_annotations.gtf");
+
+    std::string updatedGtfPath = joinPath(output_path, "updated_annotitions.gtf");
     outputFileVector.push_back(updatedGtfPath);
     std::ofstream gtf_file(updatedGtfPath, std::ios::trunc);
     gtf_file.close();
 
+    std::string quantTranscriptPath = joinPath(output_path, "counts_transcript.txt");
+    outputFileVector.push_back(quantTranscriptPath);
+    std::ofstream Q_output_Transcript(quantTranscriptPath, std::ios::trunc);
+    
+    std::string quantGenePath = joinPath(output_path, "counts_gene.txt");
+    outputFileVector.push_back(quantGenePath);
+    std::ofstream Q_output_Gene(quantGenePath, std::ios::trunc);
+    
     std::string TracePath = joinPath(output_path, "compatible_isoform.tsv");
     outputFileVector.push_back(TracePath);
     std::ofstream TraceIsoform(TracePath, std::ios::trunc);
-    if (TraceIsoform.is_open()){
-        TraceIsoform << "read_id" << '\t' << "category" << '\t' << "isoform_id" << '\t' << "gene_id" << '\t' << "barcode_id" << '\t' << "file" << '\n';
+
+    if (samFileVec.size() == 1){
+        if (Q_output_Transcript.is_open()){
+            Q_output_Transcript << "transcript_id" << '\t' << "gene_id" << '\t' << samFileVec[0] << '\n';
+        }
+        if (Q_output_Gene.is_open()){
+            Q_output_Gene << "gene_id" << '\t' << samFileVec[0] << '\n';
+        }
+        if (TraceIsoform.is_open()){
+            TraceIsoform << "read_id" << '\t' << "category" << '\t' << "isoform_id" << '\t' << "gene_id" << '\t' << "file" << '\n';
+        }
+    } else {
+        if (Q_output_Transcript.is_open()){
+            Q_output_Transcript << "transcript_id" << '\t' << "gene_id";
+        }
+        if (Q_output_Gene.is_open()){
+            Q_output_Gene << "gene_id";
+        }        
+        if (TraceIsoform.is_open()){
+            TraceIsoform << "read_id" << '\t' << "category" << '\t' << "isoform_id" << '\t' << "gene_id" << '\t' << "file" << '\n';
+        }
+        for (const auto& eachFile:samFileVec) {
+            Q_output_Transcript << '\t' << eachFile;
+            Q_output_Gene << '\t' << eachFile;
+        }
+        Q_output_Transcript << '\n';
+        Q_output_Gene << '\n';
     }
+    Q_output_Transcript.close();
+    Q_output_Gene.close(); 
     TraceIsoform.close();   
     return outputFileVector;
 }
+
 
 static inline bool ends_with(const std::string& s, const std::string& suf) {
     return s.size() >= suf.size() &&
@@ -1140,12 +1060,12 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
 
     if (S_ISREG(sam_stat.st_mode)) {
         if (ends_with(sam_file_path, ".txt") || ends_with(sam_file_path, ".tsv")) {
-            std::cout << "* This is a txt/tsv file! * << " << sam_file_path << std::endl;
+            std::cout << "* This is a txt/tsv file! * " << sam_file_path << "\n";
             std::ifstream infile(sam_file_path);
             if (!infile) {
                 std::cerr << "The file cannot be opened: " << sam_file_path << " : " << std::strerror(errno) << "\n";
                 return sam_file_vector;
-            }       
+            }
 
             std::string line;
             while (std::getline(infile, line)) {
@@ -1156,7 +1076,7 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
             }
             infile.close();
             if (sam_file_vector.empty()) {
-                std::cout << "^-^ There are 0 sam files in total. ^-^\n";
+                std::cerr << "^-^ There are 0 sam files in total. ^-^\n";
             } else {
                 std::cout << "^-^ There are " << sam_file_vector.size() << " sam files in total. ^-^\n";
             }
@@ -1174,7 +1094,7 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
         if (!dir) {
             std::cerr << "opendir failed: " << sam_file_path << " : " << std::strerror(errno) << "\n";
             return sam_file_vector;
-        }   
+        }        
         struct dirent* entry;
         while ((entry = readdir(dir)) != nullptr) {
             if (!entry->d_name || entry->d_name[0] == '.') continue;
@@ -1195,16 +1115,17 @@ std::vector<std::string> traverse_sam_file(const std::string& sam_file_path, con
     if (!Explain_file) {
         std::cerr << "Cannot write explain file: " << File_explain_path << " : " << std::strerror(errno) << "\n";
         return sam_file_vector;
-    }   
+    }    
 
     Explain_file << "File" << '\t' << "File_Path" << '\n';
-    for (int i = 0; i < sam_file_vector.size(); i++) {
+    for (auto i = 0; i < sam_file_vector.size(); i++) {
         std::cout << "SAM File " << i << " : " << sam_file_vector[i] << std::endl;
         Explain_file << i << '\t' << sam_file_vector[i] << '\n';
     }
     Explain_file.close();
     return sam_file_vector;
 }
+
 
 
 std::streampos findNextLineStart(std::ifstream& f, std::streampos pos) {
@@ -1280,10 +1201,10 @@ std::streampos findNextLineStart(std::ifstream& f, std::streampos pos) {
 }
 
 
+
 void processChunk(const std::string& one_sam_file_path, const std::streampos& start, const std::streampos& end, 
-                const std::string& output_path, const int file_i, const int SJ_Distance, 
-                std::unordered_map<std::string, std::string>& FastaRef, const int& mapq,
-                const std::string& umi_tag_second, const std::string& barcode_tag_second){
+                  const std::string& output_path, const int file_i, const int SJ_Distance, 
+                  std::unordered_map<std::string, std::string>& FastaRef, const int& mapq) {
 
     int Group_index = 0;
     std::string chrchr;
@@ -1325,8 +1246,8 @@ void processChunk(const std::string& one_sam_file_path, const std::streampos& st
 
     while (Current_Position < end) {
         Group_index++;
-        each_cluster_informs = get_each_cluster_reads_sc(samfile, Last_Position, end, mapq, umi_tag_second, barcode_tag_second);
-        
+        each_cluster_informs = get_each_cluster_reads(samfile, Last_Position, end, mapq);
+
         if (each_cluster_informs.newPos == Current_Position) {
             stuckCount++;
             std::cerr << "  Thread " << file_i << " stuck count=" << stuckCount 
@@ -1338,73 +1259,157 @@ void processChunk(const std::string& one_sam_file_path, const std::streampos& st
             }
         } else {
             stuckCount = 0;
-        }        
-        
+        }
+
         chrchr = each_cluster_informs.SetRef_name;
         Last_Position = each_cluster_informs.lastPos;
         Current_Position = each_cluster_informs.newPos;
-        each_read_SJs_informs = get_reads_allSJs(each_cluster_informs.Mymap, SJ_Distance);  
-                                                                                            
-        for (const auto& eachRead:each_read_SJs_informs.reads_SJs) {
-            readBeginEnd = each_read_SJs_informs.reads_begin_end[eachRead.first];
-            ReadInform << eachRead.first << '\t' << chrchr << '\t' << Group_index << '\t'
-                        << each_cluster_informs.ClusterCoverage[0] << '\t' 
-                        << each_cluster_informs.ClusterCoverage[1] << '\t' << readBeginEnd[0] << '\t' 
-                        << readBeginEnd[1] << '\t' << each_cluster_informs.Mylen[eachRead.first] << '\t'
-                        << each_cluster_informs.ReadsBarcode[eachRead.first] << '\t'
-                        << each_cluster_informs.ReadsUMI[eachRead.first] << '\t'
-                        << each_cluster_informs.MyFlag[eachRead.first];
-            
+        each_read_SJs_informs = get_reads_allSJs(each_cluster_informs.Mymap, SJ_Distance);
+
+        // 缓存常用引用，减少 map 查找
+        auto &reads_SJs = each_read_SJs_informs.reads_SJs;
+        auto &reads_begin_end = each_read_SJs_informs.reads_begin_end;
+        auto &reads_SJs_left = each_read_SJs_informs.reads_SJs_left;
+        auto &reads_SJs_right = each_read_SJs_informs.reads_SJs_right;
+        auto &reads_single_exon = each_read_SJs_informs.reads_single_exon;
+
+        auto &cluster_Mylen = each_cluster_informs.Mylen;
+        auto &cluster_MyFlag = each_cluster_informs.MyFlag;
+        const std::array<int,2> &clusterCoverage = each_cluster_informs.ClusterCoverage;
+
+        // 遍历多外显子 reads（含 SJ）
+        for (const auto& eachRead : reads_SJs) {
+            const std::string &read_id = eachRead.first;
+            // 尽量用 find 一次取得 Mylen / MyFlag，避免用 operator[]（可能插入）
+            int read_len = 0;
+            int read_flag = 0;
+            auto it_len = cluster_Mylen.find(read_id);
+            if (it_len != cluster_Mylen.end()) read_len = it_len->second;
+            auto it_flag = cluster_MyFlag.find(read_id);
+            if (it_flag != cluster_MyFlag.end()) read_flag = it_flag->second;
+            auto it_be = reads_begin_end.find(read_id);
+            if (it_be != reads_begin_end.end()) {
+                readBeginEnd = it_be->second;
+            } else {
+                readBeginEnd = {0,0};
+            }
+            // 拼接行（不要频繁写流）
+            outBuf.append(read_id);
+            outBuf.push_back('\t');
+            outBuf.append(chrchr);
+            outBuf.push_back('\t');
+            outBuf.append(std::to_string(Group_index));
+            outBuf.push_back('\t');
+            outBuf.append(std::to_string(clusterCoverage[0]));
+            outBuf.push_back('\t');
+            outBuf.append(std::to_string(clusterCoverage[1]));
+            outBuf.push_back('\t');
+            outBuf.append(std::to_string(readBeginEnd[0]));
+            outBuf.push_back('\t');
+            outBuf.append(std::to_string(readBeginEnd[1]));
+            outBuf.push_back('\t');
+            outBuf.append(std::to_string(read_len));
+            outBuf.push_back('\t');
+            outBuf.append(std::to_string(read_flag));
+
             SjNumber = 0;
-            for (const auto& Sj:eachRead.second) {
-                ReadInform << '\t' << Sj[0] << '\t' << Sj[1];
+            for (const auto& Sj : eachRead.second) {
+                outBuf.push_back('\t');
+                outBuf.append(std::to_string(Sj[0]));
+                outBuf.push_back('\t');
+                outBuf.append(std::to_string(Sj[1]));
 
-                thisSjNoError = ifSjNoError(each_read_SJs_informs.reads_SJs_left[eachRead.first], each_read_SJs_informs.reads_SJs_right[eachRead.first], SjNumber); 
-                if (thisSjNoError == 1) {
-
-                    thisSjSignal = ifSjSignal(FastaRef[chrchr], Sj, each_cluster_informs.MyFlag[eachRead.first]);
+                // 判断 splice 信号（仍保持原逻辑）
+                bool sjOk = false;
+                auto it_left = reads_SJs_left.find(read_id);
+                auto it_right = reads_SJs_right.find(read_id);
+                if (it_left != reads_SJs_left.end() && it_right != reads_SJs_right.end()) {
+                    sjOk = ifSjNoError(it_left->second, it_right->second, SjNumber);
+                }
+                if (sjOk) {
+                    // 这里 access FastaRef[chrchr] 可能比较昂贵，先用 find
+                    auto itF = FastaRef.find(chrchr);
+                    if (itF != FastaRef.end()) {
+                        thisSjSignal = ifSjSignal(itF->second, Sj, read_flag);
+                    } else {
+                        thisSjSignal = 0;
+                    }
 
                     if (thisSjSignal == 1) {
-                        ReadInform << '\t' << 1;
+                        outBuf.push_back('\t');
+                        outBuf.append("1");
                     } else if (thisSjSignal == 2) {
-                        ReadInform << '\t' << 2;
+                        outBuf.push_back('\t');
+                        outBuf.append("2");
                     } else {
-                        ReadInform << '\t' << 0;
+                        outBuf.push_back('\t');
+                        outBuf.append("0");
                     }
                 } else {
-                    ReadInform << '\t' << 0;
+                    outBuf.push_back('\t');
+                    outBuf.append("0");
                 }
-                SjNumber++;                    
+                SjNumber++;
             }
-            ReadInform << '\n';
+            outBuf.push_back('\n');
+            // 达到阈值就一次性写磁盘并清空 buffer
+            if (outBuf.size() >= FLUSH_THRESHOLD) {
+                ReadInform.write(outBuf.data(), static_cast<std::streamsize>(outBuf.size()));
+                outBuf.clear();
+            }
         }
-        
-        for (const auto& eachRead:each_read_SJs_informs.reads_single_exon) {
+
+        // single exon reads
+        for (const auto& eachRead : reads_single_exon) {
+            const std::string &read_id = eachRead.first;
+            int read_len = 0;
+            int read_flag = 0;
+            auto it_len = cluster_Mylen.find(read_id);
+            if (it_len != cluster_Mylen.end()) read_len = it_len->second;
+            auto it_flag = cluster_MyFlag.find(read_id);
+            if (it_flag != cluster_MyFlag.end()) read_flag = it_flag->second;
             readBeginEnd = eachRead.second;
-            ReadInform << eachRead.first << '\t' << chrchr << '\t' << Group_index << '\t'
-                        << each_cluster_informs.ClusterCoverage[0] << '\t' 
-                        << each_cluster_informs.ClusterCoverage[1] << '\t' << readBeginEnd[0] << '\t' 
-                        << readBeginEnd[1] << '\t' << each_cluster_informs.Mylen[eachRead.first] << '\t'
-                        << each_cluster_informs.ReadsBarcode[eachRead.first] << '\t'
-                        << each_cluster_informs.ReadsUMI[eachRead.first] << '\t'
-                        << each_cluster_informs.MyFlag[eachRead.first] << '\n';         
-        } 
+            outBuf.append(read_id);
+            outBuf.push_back('\t');
+            outBuf.append(chrchr);
+            outBuf.push_back('\t');
+            outBuf.append(std::to_string(Group_index));
+            outBuf.push_back('\t');
+            outBuf.append(std::to_string(clusterCoverage[0]));
+            outBuf.push_back('\t');
+            outBuf.append(std::to_string(clusterCoverage[1]));
+            outBuf.push_back('\t');
+            outBuf.append(std::to_string(readBeginEnd[0]));
+            outBuf.push_back('\t');
+            outBuf.append(std::to_string(readBeginEnd[1]));
+            outBuf.push_back('\t');
+            outBuf.append(std::to_string(read_len));
+            outBuf.push_back('\t');
+            outBuf.append(std::to_string(read_flag));
+            outBuf.push_back('\n');
+            if (outBuf.size() >= FLUSH_THRESHOLD) {
+                ReadInform.write(outBuf.data(), static_cast<std::streamsize>(outBuf.size()));
+                outBuf.clear();
+            }
+        }
+    } // while
+    // flush 剩余数据
+    if (!outBuf.empty()) {
+        ReadInform.write(outBuf.data(), static_cast<std::streamsize>(outBuf.size()));
+        outBuf.clear();
     }
     samfile.close();
     ReadInform.close();
-    std::cout << "^-^ Thread: " << file_i << " has completed processing! ^-^" << std::endl;
+    std::cerr << "^-^ Thread: " << file_i << " has completed processing! ^-^" << std::endl;
 }
-
 
 
 Split_Result get_line_split(const std::string& s, char delimiter){
 
     Split_Result read_result = {};
-
     std::istringstream iss(s);
-
     std::string token;
-  
+
     int number = 0;
     while (std::getline(iss, token, delimiter)){
         number++;
@@ -1437,13 +1442,13 @@ Split_Result get_sj_split(const std::string& s, char delimiter){
 struct FileSplit {
 
     std::map<std::string, std::vector<std::array<int,2>>> chr_coverage; 
-    std::map<std::array<int,2>, std::array<std::streampos,2>> coverage2pos; 
+    std::map<std::array<int,2>, std::array<std::streampos,2>> coverage2pos;
 
     std::vector<std::streampos> reads_pointer; 
+
     std::vector<int> group_reads_number; 
-    // 输出的文件;
+
     std::string readtxt_path; 
-    std::map<std::string, std::set<std::string>> file_barcodeSet;
     int FileNo;
 };
 
@@ -1473,7 +1478,6 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
     }
     std::sort(Read_x_vec.begin(), Read_x_vec.end()); 
     closedir(dir);
-
     std::cout << "Starting to merge " << Read_x_vec.size() << " small files in " << SmallFilePath << "..." << std::endl;
 
     std::streampos Readpos;
@@ -1492,8 +1496,6 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
     int Group_low;
     int Group_high;
 
-    std::set<std::string> cellSet;
-
     std::map<std::string, std::vector<std::string>> Group_temporary;
     std::array<int,2> this_coverage;
 
@@ -1503,20 +1505,19 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
 
         std::cout << "Processing file " << (file_number + 1) << "/" << Read_x_vec.size() 
                   << ": " << Read_x_vec[file_number] << std::endl;
-        
+
         std::ifstream SmallSamFile(fileName);
         earlyGroup = "+";
         thisGroup = "+";
 
         while (getline(SmallSamFile, line)) {
             Split_Result This_Line = get_line_split(line, '\t');
-            cellSet.insert(This_Line.tokens[7]);
             thisGroup = This_Line.tokens[1];
             this_coverage = {std::stoi(This_Line.tokens[2]), std::stoi(This_Line.tokens[3])};
 
             if (thisGroup == earlyGroup) {
                 auto it = Group_temporary.find(This_Line.read_name);
-                if (it != Group_temporary.end()) {
+                if (it != Group_temporary.end()){
                     if (std::stoi(This_Line.tokens[6]) > std::stoi(Group_temporary[This_Line.read_name][6])){
                         Group_temporary[This_Line.read_name] = This_Line.tokens;
                     }
@@ -1563,8 +1564,8 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
 
                             Readpos = AllReadInform.tellp();
                             Chunk_Bang.coverage2pos.insert({{Group_low, Group_high}, {Chunk_Bang.reads_pointer.back(),Readpos}});
-                            Chunk_Bang.reads_pointer.push_back(Readpos); //这个Group结束;
-                            Chunk_Bang.reads_pointer.push_back(Readpos); //下个Group开始;
+                            Chunk_Bang.reads_pointer.push_back(Readpos); 
+                            Chunk_Bang.reads_pointer.push_back(Readpos); 
                             Chunk_Bang.group_reads_number.push_back(Group_temporary.size());
 
                             auto it = Chunk_Bang.chr_coverage.find(chr_name);
@@ -1578,9 +1579,10 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
                             Group_temporary.clear();
                             Group_temporary[This_Line.read_name] = This_Line.tokens;
                             Group_high = this_coverage[1];
-                            Group_low = this_coverage[0];
+                            Group_low = this_coverage[0];                            
                         }
                     } else {
+
                         Group_index++;
                         for (const auto& Read:Group_temporary){
                             AllReadInform << SAMFileNumber << '\t' << Read.first;
@@ -1601,9 +1603,9 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
 
                         Readpos = AllReadInform.tellp();
                         Chunk_Bang.coverage2pos.insert({{Group_low, Group_high}, {Chunk_Bang.reads_pointer.back(),Readpos}});
-                        Chunk_Bang.reads_pointer.push_back(Readpos); //这个Group结束;
-                        Chunk_Bang.reads_pointer.push_back(Readpos); //下个Group开始;     
-                        Chunk_Bang.group_reads_number.push_back(Group_temporary.size());                     
+                        Chunk_Bang.reads_pointer.push_back(Readpos); 
+                        Chunk_Bang.reads_pointer.push_back(Readpos);  
+                        Chunk_Bang.group_reads_number.push_back(Group_temporary.size());                   
                         
                         auto it = Chunk_Bang.chr_coverage.find(chr_name);
                         if (it != Chunk_Bang.chr_coverage.end()){
@@ -1616,8 +1618,7 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
                         Group_temporary.clear();
                         Group_temporary[This_Line.read_name] = This_Line.tokens;    
                         Group_high = this_coverage[1];
-                        Group_low = this_coverage[0];
-                                                                  
+                        Group_low = this_coverage[0];                                             
                     }
                 } else {
                     Group_temporary[This_Line.read_name] = This_Line.tokens;
@@ -1651,7 +1652,7 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
             Chunk_Bang.coverage2pos.insert({{Group_low, Group_high}, {Chunk_Bang.reads_pointer.back(),Readpos}});
             Chunk_Bang.reads_pointer.push_back(Readpos);
             Chunk_Bang.group_reads_number.push_back(Group_temporary.size());
-            
+
             auto it = Chunk_Bang.chr_coverage.find(chr_name);
             if (it != Chunk_Bang.chr_coverage.end()) {
                 Chunk_Bang.chr_coverage[chr_name].push_back({Group_low, Group_high});
@@ -1664,10 +1665,9 @@ FileSplit Merge_Read_Small_Files(const std::string& SmallFilePath, const int& SA
         std::remove(fileName.c_str());
     }
     AllReadInform.close();
+    Chunk_Bang.FileNo = 1;
     std::cout << "All " << Read_x_vec.size() << " small files merged successfully. Output: " 
               << File_total_name << std::endl;
-    Chunk_Bang.FileNo = 1;
-    Chunk_Bang.file_barcodeSet[std::to_string(SAMFileNumber)] = cellSet;
     return Chunk_Bang;
 }
 
@@ -1677,10 +1677,10 @@ std::map<std::string, std::vector<std::array<int,2>>> Merge_Read_Interval(std::m
     std::map<std::string, std::vector<std::array<int,2>>> chr_range_temp;
     std::vector<std::array<int,2>> raw_intervals;
     std::vector<std::array<int,2>> sorted_intervals;
-    if (FileCoverage.size() > 0) {
+    if (FileCoverage.size() != 0) {
 
         for (const auto& eachFile:FileCoverage) {
-            if (eachFile.second.size() > 0) {
+            if (eachFile.second.size() != 0) {
 
                 for (const auto& eachChr:eachFile.second) {
                     auto itchr = chr_range_temp.find(eachChr.first);
@@ -1696,7 +1696,7 @@ std::map<std::string, std::vector<std::array<int,2>>> Merge_Read_Interval(std::m
     }
 
     std::map<std::string, std::vector<std::array<int,2>>> ChrInterval;
-    if (chr_range_temp.size() > 0) {
+    if (chr_range_temp.size() != 0) {
         for (const auto& eachChr:chr_range_temp) {
             raw_intervals = eachChr.second;
             sort(raw_intervals.begin(), raw_intervals.end());
@@ -1717,6 +1717,8 @@ std::map<std::string, std::vector<std::array<int,2>>> Merge_Read_Interval(std::m
     }
     return ChrInterval;
 }
+
+
 
 
 void Merge_Read_Big_Files_Group(const int& NEWNEW,
@@ -1740,11 +1742,11 @@ void Merge_Read_Big_Files_Group(const int& NEWNEW,
             int i = it->first;
             Group_store[i] = {};
             const std::array<std::streampos, 2>& positions = it->second;
-            // 遍历每个文件;
+
             std::string ReadFilePath = output_path + "/sam_" + std::to_string(i) + "/All_Read.txt";
-            // 读取文件;
+
             std::ifstream samfile_one(ReadFilePath);
-            // 文件跳入到这里;
+
             ThisFile_ThisGroup_pointer = positions[0];
             end = positions[1];
             samfile_one.seekg(ThisFile_ThisGroup_pointer);
@@ -1795,14 +1797,13 @@ void Merge_Read_Big_Files_Group(const int& NEWNEW,
             }
             group_read_number.push_back(count);
             ThisFile_ThisGroup_pointer = BigFile.tellp();
-            group_read_pointer.push_back(ThisFile_ThisGroup_pointer); //这个cluster结束;
-            group_read_pointer.push_back(ThisFile_ThisGroup_pointer); //下个cluster开始;
+            group_read_pointer.push_back(ThisFile_ThisGroup_pointer); 
+            group_read_pointer.push_back(ThisFile_ThisGroup_pointer); 
         }
     } else {
-        std::cout << "^-^ *** Merge large files failed *** ^-^" << std::endl;
+        std::cerr << "^-^ *** Merge large files failed *** ^-^" << std::endl;
     }
 }
-
 
 
 std::unordered_map<std::string, std::map<std::array<int,2>, std::map<int, std::array<std::streampos,2>>>> get_pointers(
@@ -1827,7 +1828,7 @@ std::unordered_map<std::string, std::map<std::array<int,2>, std::map<int, std::a
         std::map<std::array<int,2>, std::array<std::streampos,2>> thisFile_group_pointer = groups_pointer[FileNumber];
 
         for (const auto& EachChr:EachFile.second) {
-            int Rhino = 0; //每个大区域索引;
+            int Rhino = 0; 
             int Rhino_small = 0;
             std::vector<std::streampos> temp_pointer; 
             std::string ChrName = EachChr.first;
@@ -1842,7 +1843,7 @@ std::unordered_map<std::string, std::map<std::array<int,2>, std::map<int, std::a
 
                         temp_pointer.push_back(thisFile_group_pointer[small][0]);
                         temp_pointer.push_back(thisFile_group_pointer[small][1]);
-
+ 
                         if (Rhino_small == EachChr.second.size()) {
                             thisFile_group_be[0] = temp_pointer[0];
                             thisFile_group_be[1] = temp_pointer[temp_pointer.size()-1];
@@ -1860,12 +1861,14 @@ std::unordered_map<std::string, std::map<std::array<int,2>, std::map<int, std::a
                             chr_pointer_coverage[ChrName][Big_Rhino[i]].insert({FileNumber, thisFile_group_be});
                         }
                     } else {
+
                         continue;
                     }
 
                 }
             }
         }
+
     }
     return chr_pointer_coverage;
 }
@@ -1877,10 +1880,8 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
                                     const std::string& outputPath, 
                                     const int& SJDistance, 
                                     std::unordered_map<std::string, std::string>& fasta_ref,
-                                    const int& MAPQ, 
-                                    const std::string& umi_tag_first,
-                                    const std::string& barcode_tag_first) {
-    
+                                    const int& MAPQ) {
+
     std::vector<std::string> sam_file_vec;
     if (samfilevec.size() == 1) {
         sam_file_vec.push_back(sam_file_path);
@@ -1900,19 +1901,18 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
     std::map<int, std::map<std::array<int,2>, std::array<std::streampos,2>>> File_group_pointer;
     std::vector<std::streampos> startposVec;
     std::vector<std::streampos> endposVec;
-    std::map<std::string, std::set<std::string>> All_File_All_Barcode;
-
+    
     if (sam_file_vec.size() != 0) {
         ThreadPool Bigfilepool(numThreads);
         std::vector<std::future<void>> myJobs;
-        for (int samFileNumber = 0; samFileNumber < sam_file_vec.size(); ++samFileNumber) {
+        for (size_t samFileNumber = 0; samFileNumber < sam_file_vec.size(); ++samFileNumber) {
             
             startposVec.clear();
             endposVec.clear();
 
             std::cout << "*** Start processing SAM File " << samFileNumber << " ***" << std::endl;
             std::cout << "***** " << sam_file_vec[samFileNumber] << " *****" << std::endl;
-            
+
             std::string chunkFilePath = "sam_" + std::to_string(samFileNumber);
             chunkFilePath = joinPath(outputPath, chunkFilePath);
 
@@ -1935,7 +1935,7 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
                 exit(EXIT_FAILURE);
             }
 
-            for (int i = 0; i < numThreads; ++i) {
+            for (auto i = 0; i < numThreads; ++i) {
                 std::streampos startPos = i * chunkSize;
                 std::streampos endPos = (i == numThreads - 1) ? (fileSize) : static_cast<std::streampos>((i + 1) * chunkSize);
 
@@ -1946,9 +1946,9 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
                 endposVec.push_back(endPos);
             }
             one_sam.close();
-
+  
             myJobs.clear();
-            for (int i = 0; i < numThreads; ++i) {
+            for (int_least16_t i = 0; i < numThreads; ++i) {
                 myJobs.emplace_back(Bigfilepool.enqueue([&,i]() {
                     processChunk(
                         sam_file_vec[samFileNumber],
@@ -1958,50 +1958,43 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
                         i, 
                         SJDistance, 
                         std::ref(fasta_ref),
-                        MAPQ,
-                        umi_tag_first,
-                        barcode_tag_first
+                        MAPQ
                     );
                 }));
             }
             for (auto& future : myJobs) {
-                future.get(); 
+                future.get();
             }
             std::cout << "^-^ [" << sam_file_vec[samFileNumber] << "] All threads are finished generating small files! ^-^" << std::endl;
             std::cout << "^-^ Start of merge small files ! ^-^" << std::endl;
             BigBang = Merge_Read_Small_Files(chunkFilePath, samFileNumber);
             std::cout << "^-^ End of merge small files ! ^-^" << std::endl;
-
+            
             if (sam_file_vec.size() > 1) {
                 File_chr_coverage[samFileNumber] = BigBang.chr_coverage;
                 File_group_pointer[samFileNumber] = BigBang.coverage2pos;
-                All_File_All_Barcode[std::to_string(samFileNumber)] = BigBang.file_barcodeSet[std::to_string(samFileNumber)];
             }
-            
+
         }
         if (sam_file_vec.size() > 1) {
             std::cout << "^-^ The number of sam files is greater than one. Large files need to be merged. ^-^" << std::endl;
-
             std::map<std::string, std::vector<std::array<int,2>>> ChrCoverage = Merge_Read_Interval(File_chr_coverage);
-
             std::unordered_map<std::string, std::map<std::array<int,2>, std::map<int, std::array<std::streampos,2>>>> ChrCoverage_SmallPointer = 
                                                                         get_pointers(ChrCoverage, File_chr_coverage, File_group_pointer);
-
             std::vector<std::streampos> Allreads_pointer;
             std::vector<int> Allreads_group_number;            
-            // 输出的文件名;
+
             std::string FinallyFile = joinPath(outputPath, "MergedRead.txt");
             std::ofstream FinallyReadInform(FinallyFile, std::ios::trunc); 
             std::streampos Readpos = FinallyReadInform.tellp();
             Allreads_pointer.push_back(Readpos);
-
             myJobs.clear();
             int new_group = 0;
 
             std::cout << "^-^ Start of merge large File ! ^-^" << std::endl;
+
             for (const auto& eachChr:ChrCoverage_SmallPointer) {
                 std::string ChrName = eachChr.first;
-                // std::cout << ChrName << std::endl;
                 for (const auto& eachRegion:eachChr.second) {
                     std::array<int,2> ourRegion = eachRegion.first;
                     new_group = new_group + 1;
@@ -2022,63 +2015,20 @@ FileSplit thread_all_read_sam_files(const std::string& sam_file_path,
             for (auto& future : myJobs) {
                 future.get();
             }
+
             std::cout << "^-^ End of merge large File ! ^-^" << std::endl;
 
             BigBang.readtxt_path = FinallyFile;
             BigBang.group_reads_number = Allreads_group_number;
             BigBang.reads_pointer = Allreads_pointer;
             BigBang.FileNo = sam_file_vec.size();
-            BigBang.file_barcodeSet = All_File_All_Barcode;
+
             FinallyReadInform.close();
         }
     } else {
         std::cerr << "* There are no files in the folder! *" << strerror(errno) << std::endl;
     }
     return BigBang;
-}
-
-
-
-std::vector<std::unique_ptr<std::ofstream>> write_quantification_files(const std::string& outputPath, 
-                                std::map<std::string, std::set<std::string>>& eachFileBarcode){
-    std::vector<std::unique_ptr<std::ofstream>> geneisoformfiles;
-
-    for (int filenumber = 0; filenumber < eachFileBarcode.size(); filenumber++) {
-        std::string thisFile = std::to_string(filenumber);
-        std::string isoformfile = "counts_transcript_" + thisFile + ".txt";
-        isoformfile = joinPath(outputPath, isoformfile);
-        std::unique_ptr<std::ofstream> Q_output_Transcript(new std::ofstream(isoformfile, std::ios::trunc));
-        *Q_output_Transcript << "transcript_id" << '\t' << "gene_id";
-
-        for (const auto& barcode:eachFileBarcode[thisFile]) {
-            *Q_output_Transcript << '\t' << barcode;
-        }
-        *Q_output_Transcript << '\n';
-        // 将 unique_ptr 转移到 vector 中
-        geneisoformfiles.push_back(std::move(Q_output_Transcript));
-    }
-    return geneisoformfiles;
-}
-
-
-std::vector<std::unique_ptr<std::ofstream>> write_quantification_Gene_files(const std::string& outputPath, 
-                                std::map<std::string, std::set<std::string>>& eachFileBarcode){
-    std::vector<std::unique_ptr<std::ofstream>> geneisoformfiles;
-
-    for (int filenumber = 0; filenumber < eachFileBarcode.size(); filenumber++) {
-        std::string thisFile = std::to_string(filenumber);
-        std::string isoformfile = "counts_gene_" + thisFile + ".txt";
-        isoformfile = joinPath(outputPath, isoformfile);
-        std::unique_ptr<std::ofstream> Q_output_Transcript(new std::ofstream(isoformfile, std::ios::trunc));
-        *Q_output_Transcript << "gene_id";
-
-        for (const auto& barcode:eachFileBarcode[thisFile]) {
-            *Q_output_Transcript << '\t' << barcode;
-        }
-        *Q_output_Transcript << '\n';
-        geneisoformfiles.push_back(std::move(Q_output_Transcript));
-    }
-    return geneisoformfiles;
 }
 
 
@@ -2091,25 +2041,20 @@ struct Line_Split{
     std::array<int,2> Group_coverage; //4,5
     std::array<int,2> read_coverage; //6,7
     int read_length; // 这个就是追踪文件的时候可以画Coverage; //8
-    std::string read_barcode; // 9
-    std::string read_umi; // 10
-    int read_strand; //11
+    int read_strand; //9
     std::vector<std::array<int,2>> read_SJ;
     std::vector<int> read_sj_quality;
-    
 };
 
-
 Line_Split MakeLineSplit(const std::string& s, char delimiter){
-
+    // 初始化返回值结构体;
     Line_Split read_result = {};
     // 字符串流;
     std::istringstream iss(s);
-
+    // 定义字符串流中的每一段字符串;
     std::string token;
-
     int number = 0;
-
+    // 用于二次处理;
     std::vector<int> secondProcess;
     std::array<int,2> Sj;
     while (std::getline(iss, token, delimiter)){
@@ -2133,16 +2078,11 @@ Line_Split MakeLineSplit(const std::string& s, char delimiter){
         } else if (number == 9) {
             read_result.read_length = std::stoi(token);
         } else if (number == 10) {
-            read_result.read_barcode = token; 
-        } else if (number == 11) {
-            read_result.read_umi = token;
-        } else if (number == 12) {
             read_result.read_strand = std::stoi(token);
-        } else if (number > 12) {
+        } else if (number > 10) {
             secondProcess.push_back(std::stoi(token));
         }
     }
-
     for (size_t i = 0; i < secondProcess.size(); i += 3) {
         Sj = {secondProcess[i], secondProcess[i+1]};
         read_result.read_SJ.push_back(Sj);
@@ -2155,39 +2095,35 @@ Line_Split MakeLineSplit(const std::string& s, char delimiter){
 
 struct GroupInformation {
     std::string GroupIndex;
-    std::string chrName; 
-    std::array<int,2> GroupCoverage; 
-    std::unordered_map<std::string, std::string> GroupReadBarcodes;
-    std::unordered_map<std::string, std::string> GroupReadUMIs;
-    std::unordered_map<std::string, std::string> GroupReadFiles; 
-    std::unordered_map<std::string, std::vector<std::array<int,2>>> GroupReadSjs; 
-    std::unordered_map<std::string, std::array<int,2>> GroupReadCoverage; 
-    std::map<std::array<int,2>, int> GroupSjs;
-    std::unordered_map<std::string, std::vector<int>> GroupSigns; 
-    std::unordered_map<std::string, std::array<int,2>> GroupSingleExon; 
+    std::string chrName; //染色体;
+    std::array<int,2> GroupCoverage; //Group范围;
+    std::unordered_map<std::string, std::string> GroupReadFiles; //Group每条reads的所属文件; (公共, single exon 与 Multi exon都有);
+    std::unordered_map<std::string, std::vector<std::array<int,2>>> GroupReadSjs; //Group每条reads的SJs;
+    std::unordered_map<std::string, std::array<int,2>> GroupReadCoverage; //Group每条reads的开头结尾;
+    std::map<std::array<int,2>, int> GroupSjs; //Group中根据Reads得到的高置信SJ;
+    std::unordered_map<std::string, std::vector<int>> GroupSigns; //Group中所有reads的信号;
+    std::unordered_map<std::string, std::array<int,2>> GroupSingleExon; // single exon的reads;
     std::unordered_map<std::string, int> GroupReadStrands;
 };
 
-GroupInformation knowGroupInformation(std::streampos& startpos, 
-                                    std::streampos& endpos, 
-                                    const std::string& sam_file_path, 
-                                    const int& Sj_Support_Read_Number) {
+GroupInformation knowGroupInformation(std::streampos& startpos, std::streampos& endpos, 
+                                    const std::string& sam_file_path, const int& Sj_Support_Read_Number) {
     GroupInformation groupinformation;
     std::ifstream FinalSamFile(sam_file_path);
     FinalSamFile.seekg(startpos);
-
+    
     std::streampos Current_Position = FinalSamFile.tellg();
     std::streampos Last_Position = Current_Position;
     std::string line;
 
     std::map<std::array<int,2>, std::array<int,2>> Temp_Sjs;
-
+ 
     while (getline(FinalSamFile, line)) {
 
         Last_Position = Current_Position;
         Current_Position = FinalSamFile.tellg();
         if (Last_Position < endpos || Last_Position == FinalSamFile.eof()) {
-
+            
             Line_Split Line_result = MakeLineSplit(line, '\t');
 
             groupinformation.GroupIndex = Line_result.Group_index;
@@ -2196,15 +2132,13 @@ GroupInformation knowGroupInformation(std::streampos& startpos,
             groupinformation.GroupReadFiles[Line_result.read_name] = Line_result.read_file;
 
             groupinformation.GroupReadCoverage[Line_result.read_name] = Line_result.read_coverage;
-            groupinformation.GroupReadBarcodes[Line_result.read_name] = Line_result.read_barcode;
-            groupinformation.GroupReadUMIs[Line_result.read_name] = Line_result.read_umi;
             groupinformation.GroupReadStrands[Line_result.read_name] = Line_result.read_strand;
 
             if (Line_result.read_SJ.size() > 0) {
                 groupinformation.GroupReadSjs[Line_result.read_name] = Line_result.read_SJ;
                 groupinformation.GroupSigns[Line_result.read_name] = Line_result.read_sj_quality;
 
-                for (int i = 0; i < Line_result.read_sj_quality.size(); i++) {
+                for (auto i = 0; i < Line_result.read_sj_quality.size(); i++) {
                     if (Line_result.read_sj_quality[i] > 0) {
                         std::array<int,2> Temp_array = Line_result.read_SJ[i];
                         auto it = Temp_Sjs.find(Temp_array);
@@ -2229,9 +2163,9 @@ GroupInformation knowGroupInformation(std::streampos& startpos,
             groupinformation.GroupSjs[Sj.first] = Sj.second[1];
         }
     }
+
     return groupinformation;
 }
-
 
 
 struct GroupAnnotation
@@ -2290,210 +2224,10 @@ GroupAnnotation get_group_single_exon_gene_annotation (
 
 
 
-void write_single_exon_gtf_trace_sc(int& FileNo,
-                                    std::unordered_map<std::string, std::string>& groupreadfiles,
-                                    std::unordered_map<std::string, std::vector<std::string>>& singleexonwithreads,
-                                    std::unordered_map<std::string, std::array<int,2>>& singleexongroupannotation,
-                                    std::ofstream& Updated_Files, std::ofstream& Trace, 
-                                    std::vector<std::unique_ptr<std::ofstream>>& IsoformFilePath,
-                                    std::vector<std::mutex>& IsoformMutexes,
-                                    std::unordered_map<std::string, std::string>& GTF_Transcript_Strand,
-                                    std::unordered_map<std::string, std::string>& groupreadbarcodes,
-                                    std::string& chrname,
-                                    std::map<std::string, std::set<std::string>>& AllFileBarcode) {
-
-    std::string updateBuffer;
-    std::vector<std::string> isoformBuffers(FileNo);
-
-    std::unordered_map<std::string, std::vector<std::string>> me_transcript_se_reads;
-    me_transcript_se_reads.reserve(singleexonwithreads.size());
-
-    std::vector<std::vector<std::string>> AllBarcodeVec(FileNo);
-    for (int f = 0; f < FileNo; f++) {
-        const std::string key = std::to_string(f);
-        AllBarcodeVec[f].assign(AllFileBarcode[key].begin(), AllFileBarcode[key].end());
-    }
-
-    for (const auto& kv : singleexonwithreads) {
-        const std::string& transcript = kv.first;
-        const std::vector<std::string>& reads = kv.second;
-
-        auto itAnno = singleexongroupannotation.find(transcript);
-
-        if (itAnno == singleexongroupannotation.end()) {
-            if (!reads.empty()) me_transcript_se_reads.emplace(transcript, reads);
-            continue;
-        }
-        if (reads.empty()) continue;
-
-        size_t pos = transcript.find('|');
-        std::string first_part, second_part;
-        if (pos != std::string::npos) {
-            first_part  = transcript.substr(0, pos);
-            second_part = transcript.substr(pos + 1);
-        } else {
-            first_part = second_part = transcript;
-        }
-
-        const auto& exonRange = itAnno->second;
-        const std::string& strand = GTF_Transcript_Strand[transcript];
-
-        updateBuffer.append(chrname); updateBuffer.push_back('\t');
-        updateBuffer.append("annotated_isoform\ttranscript\t");
-        updateBuffer.append(std::to_string(exonRange[0])); updateBuffer.push_back('\t');
-        updateBuffer.append(std::to_string(exonRange[1]));
-        updateBuffer.append("\t.\t"); updateBuffer.append(strand);
-        updateBuffer.append("\t.\tgene_id \""); updateBuffer.append(first_part);
-        updateBuffer.append("\"; transcript_id \""); updateBuffer.append(second_part);
-        updateBuffer.append("\";\n");
-
-        updateBuffer.append(chrname); updateBuffer.push_back('\t');
-        updateBuffer.append("annotated_isoform\texon\t");
-        updateBuffer.append(std::to_string(exonRange[0])); updateBuffer.push_back('\t');
-        updateBuffer.append(std::to_string(exonRange[1]));
-        updateBuffer.append("\t.\t"); updateBuffer.append(strand);
-        updateBuffer.append("\t.\tgene_id \""); updateBuffer.append(first_part);
-        updateBuffer.append("\"; transcript_id \""); updateBuffer.append(second_part);
-        updateBuffer.append("\"; exon_number \"0\";\n");
-
-        std::vector<std::vector<int>> counts(FileNo);
-        for (int f = 0; f < FileNo; f++)
-            counts[f].assign(AllBarcodeVec[f].size(), 0);
-
-        for (const auto& read : reads) {
-            int fileID = std::stoi(groupreadfiles[read]);
-            const std::string& barcode = groupreadbarcodes[read];
-
-            auto& barVec = AllBarcodeVec[fileID];
-            for (size_t bi = 0; bi < barVec.size(); bi++) {
-                if (barVec[bi] == barcode) {
-                    counts[fileID][bi] += 1;
-                    break;
-                }
-            }
-        }
-
-        for (int f = 0; f < FileNo; f++) {
-            isoformBuffers[f].append(second_part);
-            isoformBuffers[f].push_back('\t');
-            isoformBuffers[f].append(first_part);
-            for (auto c : counts[f]) {
-                isoformBuffers[f].push_back('\t');
-                isoformBuffers[f].append(std::to_string(c));
-            }
-            isoformBuffers[f].push_back('\n');
-        }
-    }
-
-    if (Updated_Files.is_open()) {
-        std::unique_lock<std::mutex> lock(updatedGtfMutex);
-        Updated_Files << updateBuffer;
-    }
-
-    for (int f = 0; f < FileNo; f++) {
-        std::unique_lock<std::mutex> lock(IsoformMutexes[f]);
-        *(IsoformFilePath[f]) << isoformBuffers[f];
-
-    }
-    singleexonwithreads = std::move(me_transcript_se_reads);
-
-}
-
-
-struct ReadNode {
-    std::string read_id;
-    std::string umi;
-    size_t umi_len;
-    bool is_duplicate;
-    // 使用 std::move 优化构造函数
-    ReadNode(std::string id, std::string u) 
-        : read_id(std::move(id)), umi(std::move(u)), is_duplicate(false) {
-        umi_len = umi.length();
-    }
-};
-
-template <typename KeyType>
-void delete_umi_replicate(std::unordered_map<KeyType, std::vector<std::string>>& groupcluster,
-                        const std::unordered_map<std::string, std::string>& groupreadbarcodes,
-                        const std::unordered_map<std::string, std::string>& groupreadumi) {
-    
-    // 移除 result_cluster，不再需要双倍内存
-    EdlibAlignConfig align_config = edlibNewAlignConfig(3, EDLIB_MODE_NW, EDLIB_TASK_DISTANCE, NULL, 0);
-
-    // 使用迭代器遍历，方便删除元素
-    auto it_cluster = groupcluster.begin();
-    while (it_cluster != groupcluster.end()) {
-        const std::vector<std::string>& read_list = it_cluster->second;
-
-        // 1. 构建 Barcode 分组
-        std::unordered_map<std::string, std::vector<ReadNode>> barcode_groups;
-        // 预估大小，避免扩容
-        if (read_list.size() > 0) barcode_groups.reserve(read_list.size()); 
-
-        for (const auto& read_id : read_list) {
-            auto it_bc = groupreadbarcodes.find(read_id);
-            auto it_umi = groupreadumi.find(read_id);
-            if (it_bc != groupreadbarcodes.end() && it_umi != groupreadumi.end()) {
-                barcode_groups[it_bc->second].emplace_back(read_id, it_umi->second);
-            }
-        }
-
-        std::vector<std::string> kept_reads_in_cluster;
-        kept_reads_in_cluster.reserve(read_list.size());
-
-        // 2. 遍历每个Barcode组进行聚类;
-        for (auto& bg_pair : barcode_groups) {
-            std::vector<ReadNode>& nodes = bg_pair.second;
-            const size_t num_reads = nodes.size();
-            // Case 1: 单条read, 直接保留;
-            if (num_reads == 1) {
-                kept_reads_in_cluster.push_back(std::move(nodes[0].read_id));
-                continue;
-            }
-            // Case 2:多条reads, 贪婪聚类;
-            for (size_t i = 0; i < num_reads; ++i) {
-                if (nodes[i].is_duplicate) continue;
-
-                // 保留中心节点
-                kept_reads_in_cluster.push_back(std::move(nodes[i].read_id));
-                
-                const char* center_umi_ptr = nodes[i].umi.c_str();
-                const int center_len = static_cast<int>(nodes[i].umi_len);
-
-                for (size_t j = i + 1; j < num_reads; ++j) {
-                    if (nodes[j].is_duplicate) continue;
-                    const int other_len = static_cast<int>(nodes[j].umi_len);
-                    if (std::abs(center_len - other_len) > 3) continue;
-                    // Edlib 比对
-                    EdlibAlignResult alignResult = edlibAlign(
-                        center_umi_ptr, center_len,
-                        nodes[j].umi.c_str(), other_len,
-                        align_config
-                    );
-
-                    if (alignResult.status == EDLIB_STATUS_OK && alignResult.editDistance != -1) nodes[j].is_duplicate = true;
-                    edlibFreeAlignResult(alignResult);
-                }
-            }
-        }
-
-        if (!kept_reads_in_cluster.empty()) {
-            // 将去重后的reads移动回原来的map value中, 旧的vector内容被释放, 新的内容接管, 内存波动极小;
-            it_cluster->second = std::move(kept_reads_in_cluster);
-            ++it_cluster;
-        } else {
-            it_cluster = groupcluster.erase(it_cluster);
-        }
-    }
-}
-
-
-
 struct SE_belong2_genetranscript {
-    std::unordered_map<int, std::unordered_map<std::string, std::vector<std::string>>> file_SE_reads_gene_number;
+    std::unordered_map<int, std::unordered_map<std::string, double>> file_SE_reads_gene_number;
     std::unordered_map<std::string, std::vector<std::string>> Transcript_with_SE_reads;
 };
-
 
 SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                                     GroupAnnotation& thisGroupAnnotation,
@@ -2503,29 +2237,35 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                                     std::unordered_map<std::string, std::vector<std::array<int,2>>>& tx2exon,
                                     int& FileNo, int& Edge, std::string& CHR,
                                     std::unordered_map<std::string, std::pair<std::vector<std::array<int,2>>, std::vector<std::string>>>& AlreadyFSM,
-                                    std::ofstream& Trace,
-                                    std::unordered_map<std::string, std::string>& groupreadbarcodes,
-                                    std::unordered_map<std::string, std::string>& groupreadumis,
-                                    const int& umiMode) {
-    
+                                    std::ofstream& Trace) {
     SE_belong2_genetranscript SingleReads;
-    
     const auto& group_genes = thisGroupAnnotation.group_genes;
     const auto& group_me_transcripts = thisGroupAnnotation.group_me_transcripts;
     const auto& group_se_transcripts = thisGroupAnnotation.group_se_transcripts;
 
+    // gene-reads;
     std::unordered_map<std::string, std::vector<std::string>> SingleReads_inGenes;
     SingleReads_inGenes.reserve(group_genes.size());
 
-    for (const auto& EachGene:group_genes) SingleReads_inGenes.emplace(EachGene.first, std::vector<std::string>{});
+    for (const auto& EachGene:group_genes) {
+        SingleReads_inGenes.emplace(EachGene.first, std::vector<std::string>{});
+    }
 
     std::unordered_map<std::string, std::vector<std::string>> SingleReads_inTranscripts;
     SingleReads_inTranscripts.reserve(group_me_transcripts.size() + group_se_transcripts.size());
 
-    for (const auto& EachTx:group_me_transcripts) SingleReads_inTranscripts.emplace(EachTx.first, std::vector<std::string>{});
-    for (const auto& EachTx:group_se_transcripts) SingleReads_inTranscripts.emplace(EachTx.first, std::vector<std::string>{});
+    for (const auto& EachTx:group_me_transcripts) {
+        SingleReads_inTranscripts.emplace(EachTx.first, std::vector<std::string>{});
+    }
+    for (const auto& EachTx:group_se_transcripts) {
+        SingleReads_inTranscripts.emplace(EachTx.first, std::vector<std::string>{});
+    }
 
-    std::unordered_map<std::string, std::vector<std::array<int,2>>> genes2exons; genes2exons.reserve(group_genes.size());
+    // 生成一个gene:{exons}的unordered_map的列表;
+    std::unordered_map<std::string, std::vector<std::array<int,2>>> genes2exons;
+    genes2exons.reserve(group_genes.size());
+    
+    // 遍历所有基因
     for (const auto& g : group_genes) {
         auto it_gene = gene2tx.find(g.first);
         if (it_gene == gene2tx.end()) continue;
@@ -2535,13 +2275,18 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
             if (it_tx == tx2exon.end()) continue;
             exons.insert(exons.end(), it_tx->second.begin(), it_tx->second.end());
         }
+        // 赋值到结果map
         exons = mergeIntervals(exons);
         genes2exons.emplace(g.first, std::move(exons));
     }    
 
     std::vector<std::string> Temp_Gene; Temp_Gene.reserve(32);
     std::vector<std::array<int,2>> tmpReadVec(1);
+    std::vector<std::string> Part_Transcript;
 
+    std::vector<int> Tx_Temp_Dist; 
+    std::vector<int> Tx_Temp_exon; 
+    std::vector<int> Tx_Temp_Interval;
     std::vector<int> edgeDist;
     
     for (const auto& EachSing:GroupSingleExonReads) {
@@ -2552,57 +2297,211 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
         tmpReadVec[0] = read_exon;
 
         for (const auto& EachGene:group_genes) {
-            if ( read_exon[0] > EachGene.second[1] + Edge || read_exon[1] < EachGene.second[0] - Edge ) continue;
-            if (IntervalIntersection(genes2exons[EachGene.first], tmpReadVec) > 0) Temp_Gene.push_back(EachGene.first);       
+            if ( read_exon[0] > EachGene.second[1] + Edge || read_exon[1] < EachGene.second[0] - Edge ) { continue; }
+            if (IntervalIntersection(genes2exons[EachGene.first], tmpReadVec) > 0) { Temp_Gene.push_back(EachGene.first); }            
         }
 
-        if (Temp_Gene.size() == 0) continue;
+        if (Temp_Gene.size() == 0) { continue; } 
+        
+        Tx_Temp_Dist.clear();
+        Tx_Temp_exon.clear();
+        Part_Transcript.clear();
+        Tx_Temp_Interval.clear();
         
         if (Temp_Gene.size() == 1) {
             const auto& gene = Temp_Gene[0];
-            auto& SRiG_gene = SingleReads_inGenes[gene];
-            SRiG_gene.push_back(read_name);
+            SingleReads_inGenes[gene].push_back(read_name);
+
+            // 从这里继续分这个基因的reads给isoform;
+            const auto& Temp_Transcript = gene2tx[gene];
+
+            if (Temp_Transcript.size() == 1) {
+                // 只有一个转录本;
+                SingleReads_inTranscripts[Temp_Transcript[0]].push_back(read_name);
+            } else {
+                // 这一个基因有多个转录本; 首先是交集筛选;
+                for (const auto& EachTx:Temp_Transcript) {
+                    auto it_tx = tx2exon.find(EachTx);
+                    if (it_tx == tx2exon.end()) continue;
+                    const auto& SJ_Vector = it_tx->second;
+                    int intersection = IntervalIntersection(SJ_Vector, tmpReadVec);
+                    if (intersection > 0) {
+                        Part_Transcript.push_back(EachTx);
+                        Tx_Temp_Dist.push_back(intersection);
+                        Tx_Temp_exon.push_back(SJ_Vector.size());
+                        Tx_Temp_Interval.push_back(IntervalMinDistance(SJ_Vector, read_exon));
+                    }
+                }
+                // 如果这多个转录本跟reads都没有交集;
+                if (Part_Transcript.size() == 0) { continue; } 
+                
+                if (Part_Transcript.size() == 1) {
+                    // 如果只有一个转录本跟reads有交集;
+                    if (Part_Transcript[0].size() != 0) {
+                        SingleReads_inTranscripts[Part_Transcript[0]].push_back(read_name);
+                    }                    
+                } else {
+                    // 如果多个转录本跟reads有交集;
+                    std::string MaxTranscriptName;
+                    auto it = std::find(Tx_Temp_exon.begin(), Tx_Temp_exon.end(), 1);     
+                    // 这里面有单exon的转录本;
+                    if (it != Tx_Temp_exon.end()) {
+
+                        // 1.首先看看边界
+                        std::vector<int> Next_Part;
+                        int min_interval = *std::min_element(Tx_Temp_Interval.begin(), Tx_Temp_Interval.end());
+                        for (auto i = 0; i < Part_Transcript.size(); i++) {
+                            if (Tx_Temp_Interval[i] - min_interval < 10 ) {
+                                Next_Part.push_back(i);
+                            }
+                        }
+
+                        if (Next_Part.size() == 1) {
+                            if (Part_Transcript[Next_Part[0]].size() != 0) {
+                                SingleReads_inTranscripts[Part_Transcript[Next_Part[0]]].push_back(read_name);
+                            }
+                         
+                        } else {
+                            // 2.总体长度;
+                            std::vector<int> Next2_Part;
+                            std::vector<int> Dist2;
+                            for (auto i = 0; i < Next_Part.size(); i++) {
+                                Dist2.push_back(Tx_Temp_Dist[Next_Part[i]]);
+                            }
+                            int max_intersect = *std::max_element(Dist2.begin(), Dist2.end());
+
+                            for (int j = 0; j < Next_Part.size(); j++) {
+                                if (max_intersect - Tx_Temp_Dist[Next_Part[j]] < 10) {
+                                    Next2_Part.push_back(Next_Part[j]);
+                                }
+                            }
+
+                            if (Next2_Part.size() == 1) {
+                                if (Part_Transcript[Next2_Part[0]].size() != 0) {
+                                    SingleReads_inTranscripts[Part_Transcript[Next2_Part[0]]].push_back(read_name);
+                                }
+
+                            } else {
+                                // 3.是不是单exon的;
+                                std::vector<int> Next3_Part;
+                                for (int j = 0; j < Next2_Part.size(); j++) {
+                                    if (Tx_Temp_exon[Next2_Part[j]] == 1) {
+                                        Next3_Part.push_back(Next2_Part[j]);
+                                    }
+                                }
+                                if (Next3_Part.size() == 1) {
+                                    if (Part_Transcript[Next3_Part[0]].size() != 0) {
+                                        SingleReads_inTranscripts[Part_Transcript[Next3_Part[0]]].push_back(read_name);
+                                    }
+                                    
+                                } else {
+                                    // 看FSM;
+                                    size_t positions = 0;
+                                    int Thiscount = 0;
+                                    for (size_t i = 0; i < Next3_Part.size(); i++) {
+                                        if (AlreadyFSM.find(Part_Transcript[Next3_Part[i]]) != AlreadyFSM.end()) {
+                                            if (AlreadyFSM[Part_Transcript[Next3_Part[i]]].second.size() > Thiscount) {
+                                                Thiscount = AlreadyFSM[Part_Transcript[Next3_Part[i]]].second.size();
+                                                positions = Next3_Part[i];
+                                            }
+                                        }
+                                    }
+                                    MaxTranscriptName = Part_Transcript[positions];                                 
+                                    if (MaxTranscriptName.size() != 0) {
+                                        SingleReads_inTranscripts[MaxTranscriptName].push_back(read_name);
+                                    }
+                                }
+                            }
+                        }
+
+                    // 这里面没有单exon的转录本;
+                    } else {
+
+                        // 整个基因没有单个exon的情况; 就要看与其他转录本的交集了;
+                        // 1.首先看看边界
+                        std::vector<int> Next_Part;
+                        int min_interval = *std::min_element(Tx_Temp_Interval.begin(), Tx_Temp_Interval.end());
+                        for (auto i = 0; i < Part_Transcript.size(); i++) {
+                            if ( Tx_Temp_Interval[i] - min_interval < 10 ) {
+                                Next_Part.push_back(i);
+                            }
+                        } 
+
+                        if (Next_Part.size() == 1) {
+                            if (Part_Transcript[Next_Part[0]].size() != 0) {
+                                SingleReads_inTranscripts[Part_Transcript[Next_Part[0]]].push_back(read_name);
+                            }
+                        
+                        } else {
+                            // 2.总体长度;
+                            std::vector<int> Next2_Part;
+                            std::vector<int> Dist2;
+                            for (auto i = 0; i < Next_Part.size(); i++) {
+                                Dist2.push_back(Tx_Temp_Dist[Next_Part[i]]);
+                            }
+                            int max_intersect = *std::max_element(Dist2.begin(), Dist2.end());
+
+                            for (int j = 0; j < Next_Part.size(); j++) {
+                                if (max_intersect - Tx_Temp_Dist[Next_Part[j]] < 10) {
+                                    Next2_Part.push_back(Next_Part[j]);
+                                }
+                            }
+                            if (Next2_Part.size() == 1) {
+                                if (Part_Transcript[Next2_Part[0]].size() != 0) {
+                                    SingleReads_inTranscripts[Part_Transcript[Next2_Part[0]]].push_back(read_name);
+                                }
+                            } else {
+                                // 看FSM;
+                                size_t positions = 0;
+                                int Thiscount = 0;
+                                for (size_t i = 0; i < Next2_Part.size(); i++) {
+                                    if (AlreadyFSM.find(Part_Transcript[Next2_Part[i]]) != AlreadyFSM.end()) {
+                                        if (AlreadyFSM[Part_Transcript[Next2_Part[i]]].second.size() > Thiscount) {
+                                            Thiscount = AlreadyFSM[Part_Transcript[Next2_Part[i]]].second.size();
+                                            positions = Next2_Part[i];
+                                        }
+                                    }
+                                }                                
+                                MaxTranscriptName = Part_Transcript[positions];                              
+                                if (MaxTranscriptName.size() != 0) {
+                                    SingleReads_inTranscripts[MaxTranscriptName].push_back(read_name);
+                                }
+                            }
+                        }               
+                    }
+                }
+
+            }
 
         } else {
             // 如果有多个基因, 看与哪个基因重复的更多;
             edgeDist.clear();
             edgeDist.reserve(Temp_Gene.size());
-            
-            std::vector<int> Temp_Dist; Temp_Dist.reserve(Temp_Gene.size());
-            std::vector<int> Temp_exon; Temp_exon.reserve(Temp_Gene.size());
-            
-            for (const auto& gene_id : Temp_Gene) {
-                auto it_gene_exons = genes2exons.find(gene_id);
-                auto it_gene_txs = gene2tx.find(gene_id);
-                if (it_gene_exons == genes2exons.end() || it_gene_txs == gene2tx.end()) {
-                    Temp_Dist.push_back(0);
-                    Temp_exon.push_back(0);
-                    edgeDist.push_back(INT_MAX);
-                    continue;
-                }
-                const auto& exons = it_gene_exons->second;
-                const auto& transcripts = it_gene_txs->second;
 
-                int min_dist = INT_MAX;
+            std::vector<int> Temp_Dist;
+            std::vector<int> Temp_exon;
+            Temp_Dist.reserve(Temp_Gene.size());
+            Temp_exon.reserve(Temp_Gene.size());
+
+            for (const auto& EachGene:Temp_Gene) {
+                int MinDist = INT_MAX;
+                const auto& exons = genes2exons[EachGene];
                 int intersection = IntervalIntersection(exons, tmpReadVec);
                 Temp_Dist.push_back(intersection);
                 Temp_exon.push_back(exons.size());
-
-                for (const auto& EachTx:transcripts) {
-                    auto it_tx = tx2exon.find(EachTx);
-                    if (it_tx == tx2exon.end()) continue;
-                    int d = IntervalMinDistance(it_tx->second, read_exon);
-                    if (d < min_dist) min_dist = d;
-                    if (min_dist == 0) break; 
+                for (const auto& EachTx:gene2tx[EachGene]) {
+                    MinDist = std::min(MinDist, IntervalMinDistance(tx2exon[EachTx], read_exon));
                 }
-                edgeDist.push_back(min_dist);
+                edgeDist.push_back(MinDist);
             }
 
+            // 首先看看有没有单个exon的基因; 但是有多个单exon的基因呢?
             std::string MaxGeneName;         
+
             // 1.首先看看基因边界;
             std::vector<int> Next_Gene_Part;
             int min_gene_interval = *std::min_element(edgeDist.begin(), edgeDist.end());
-            for (int i = 0; i < Temp_Gene.size(); i++) {
+            for (auto i = 0; i < Temp_Gene.size(); i++) {
                 if (edgeDist[i] - min_gene_interval < 10) {
                     Next_Gene_Part.push_back(i);
                 }
@@ -2613,7 +2512,7 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                 // 2.然后看看总体长度;
                 std::vector<int> Next2_Gene_Part;
                 std::vector<int> Temp_Dist2;
-                for (int i = 0; i < Next_Gene_Part.size(); i++) {
+                for (auto i = 0; i < Next_Gene_Part.size(); i++) {
                     Temp_Dist2.push_back(Temp_Dist[Next_Gene_Part[i]]);
                 }
                 int max_Gene_intersect = *std::max_element(Temp_Dist2.begin(), Temp_Dist2.end());
@@ -2638,36 +2537,17 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                     }
                 }
             }
-            auto& SRiG_gene = SingleReads_inGenes[MaxGeneName];
-            SRiG_gene.push_back(read_name);
-        }
-    }
 
-    if (umiMode) delete_umi_replicate(SingleReads_inGenes, groupreadbarcodes, groupreadumis);
+            if (MaxGeneName.size() != 0) {
+                SingleReads_inGenes[MaxGeneName].push_back(read_name);
+                // 开始转录本;
+                const auto& Temp_Transcript = gene2tx[MaxGeneName];
 
-    std::vector<int> Tx_Temp_Dist; 
-    std::vector<int> Tx_Temp_exon; 
-    std::vector<int> Tx_Temp_Interval;
-    std::vector<std::string> Part_Transcript;
-
-    for (const auto& EachGene:SingleReads_inGenes) {
-        if (EachGene.second.size() > 0) {
-            const auto& gene = EachGene.first;
-            const auto& Temp_Transcript = gene2tx[gene];
-
-            for (const auto& read_name:EachGene.second) {
-                auto itread = GroupSingleExonReads.find(read_name);
-                if (itread == GroupSingleExonReads.end()) continue;
-                const auto& read_exon = itread->second;
                 if (Temp_Transcript.size() == 1) {
                     // 只有一个转录本;
                     SingleReads_inTranscripts[Temp_Transcript[0]].push_back(read_name);
                 } else {
                     // 这一个基因有多个转录本; 首先是交集筛选;
-                    Tx_Temp_Dist.clear();
-                    Tx_Temp_exon.clear();
-                    Part_Transcript.clear();
-                    Tx_Temp_Interval.clear();
                     for (const auto& EachTx:Temp_Transcript) {
                         auto it_tx = tx2exon.find(EachTx);
                         if (it_tx == tx2exon.end()) continue;
@@ -2681,7 +2561,8 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                         }
                     }
                     // 如果这多个转录本跟reads都没有交集;
-                    if (Part_Transcript.size() == 0) continue;
+                    if (Part_Transcript.size() == 0) { continue; } 
+                    
                     if (Part_Transcript.size() == 1) {
                         // 如果只有一个转录本跟reads有交集;
                         if (Part_Transcript[0].size() != 0) {
@@ -2693,11 +2574,11 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                         auto it = std::find(Tx_Temp_exon.begin(), Tx_Temp_exon.end(), 1);     
                         // 这里面有单exon的转录本;
                         if (it != Tx_Temp_exon.end()) {
-
+                   
                             // 1.首先看看边界
                             std::vector<int> Next_Part;
                             int min_interval = *std::min_element(Tx_Temp_Interval.begin(), Tx_Temp_Interval.end());
-                            for (int i = 0; i < Part_Transcript.size(); i++) {
+                            for (auto i = 0; i < Part_Transcript.size(); i++) {
                                 if (Tx_Temp_Interval[i] - min_interval < 10 ) {
                                     Next_Part.push_back(i);
                                 }
@@ -2707,12 +2588,12 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                                 if (Part_Transcript[Next_Part[0]].size() != 0) {
                                     SingleReads_inTranscripts[Part_Transcript[Next_Part[0]]].push_back(read_name);
                                 }
-                            
+                       
                             } else {
                                 // 2.总体长度;
                                 std::vector<int> Next2_Part;
                                 std::vector<int> Dist2;
-                                for (int i = 0; i < Next_Part.size(); i++) {
+                                for (auto i = 0; i < Next_Part.size(); i++) {
                                     Dist2.push_back(Tx_Temp_Dist[Next_Part[i]]);
                                 }
                                 int max_intersect = *std::max_element(Dist2.begin(), Dist2.end());
@@ -2740,7 +2621,7 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                                         if (Part_Transcript[Next3_Part[0]].size() != 0) {
                                             SingleReads_inTranscripts[Part_Transcript[Next3_Part[0]]].push_back(read_name);
                                         }
-                                        
+                                     
                                     } else {
                                         // 看FSM;
                                         size_t positions = 0;
@@ -2750,10 +2631,12 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                                                 if (AlreadyFSM[Part_Transcript[Next3_Part[i]]].second.size() > Thiscount) {
                                                     Thiscount = AlreadyFSM[Part_Transcript[Next3_Part[i]]].second.size();
                                                     positions = Next3_Part[i];
+
                                                 }
                                             }
                                         }
-                                        MaxTranscriptName = Part_Transcript[positions];                                 
+                                        MaxTranscriptName = Part_Transcript[positions];
+                                    
                                         if (MaxTranscriptName.size() != 0) {
                                             SingleReads_inTranscripts[MaxTranscriptName].push_back(read_name);
                                         }
@@ -2768,21 +2651,22 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                             // 1.首先看看边界
                             std::vector<int> Next_Part;
                             int min_interval = *std::min_element(Tx_Temp_Interval.begin(), Tx_Temp_Interval.end());
-                            for (int i = 0; i < Part_Transcript.size(); i++) {
+                            for (auto i = 0; i < Part_Transcript.size(); i++) {
                                 if ( Tx_Temp_Interval[i] - min_interval < 10 ) {
                                     Next_Part.push_back(i);
                                 }
                             } 
+
                             if (Next_Part.size() == 1) {
                                 if (Part_Transcript[Next_Part[0]].size() != 0) {
                                     SingleReads_inTranscripts[Part_Transcript[Next_Part[0]]].push_back(read_name);
                                 }
-                            
+                          
                             } else {
                                 // 2.总体长度;
                                 std::vector<int> Next2_Part;
                                 std::vector<int> Dist2;
-                                for (int i = 0; i < Next_Part.size(); i++) {
+                                for (auto i = 0; i < Next_Part.size(); i++) {
                                     Dist2.push_back(Tx_Temp_Dist[Next_Part[i]]);
                                 }
                                 int max_intersect = *std::max_element(Dist2.begin(), Dist2.end());
@@ -2796,6 +2680,7 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                                     if (Part_Transcript[Next2_Part[0]].size() != 0) {
                                         SingleReads_inTranscripts[Part_Transcript[Next2_Part[0]]].push_back(read_name);
                                     }
+ 
                                 } else {
                                     // 看FSM;
                                     size_t positions = 0;
@@ -2808,7 +2693,7 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                                             }
                                         }
                                     }                                
-                                    MaxTranscriptName = Part_Transcript[positions];                              
+                                    MaxTranscriptName = Part_Transcript[positions];                                 
                                     if (MaxTranscriptName.size() != 0) {
                                         SingleReads_inTranscripts[MaxTranscriptName].push_back(read_name);
                                     }
@@ -2817,15 +2702,15 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                         }
                     }
                 }
-
             }
         }
     }
+    genes2exons.clear();
 
-    std::unordered_map<int, std::unordered_map<std::string, std::vector<std::string>>> FileSingleGeneNumber;
+    std::unordered_map<int, std::unordered_map<std::string, double>> FileSingleGeneNumber;
     FileSingleGeneNumber.reserve(FileNo);
     for (int i = 0; i < FileNo; i++) {
-        FileSingleGeneNumber.emplace(i, std::unordered_map<std::string, std::vector<std::string>>{});
+        FileSingleGeneNumber.emplace(i, std::unordered_map<std::string, double>{});
     }
 
     if (FileNo > 1) {
@@ -2844,7 +2729,7 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                     }
                     // 最终数量结果写入;
                     for (const auto& EachFile:thisGene_FileCounts) {
-                        FileSingleGeneNumber[EachFile.first][EachGene.first] = EachFile.second; 
+                        FileSingleGeneNumber[EachFile.first][EachGene.first] = static_cast<double>(EachFile.second.size()); 
                     }
                 }
             }
@@ -2873,13 +2758,13 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
                     std::unique_lock<std::mutex> lock(traceMutex);
                     Trace << buffer;
                 }
-            }            
+            }
         }
 
     } else {
         if (SingleReads_inGenes.size() > 0) {
-            for (const auto& EachGene:SingleReads_inGenes) {          
-                FileSingleGeneNumber[0][EachGene.first] = EachGene.second;
+            for (const auto& EachGene:SingleReads_inGenes) {   
+                FileSingleGeneNumber[0][EachGene.first] = static_cast<double>(EachGene.second.size());
             }
 
             std::string first_part, second_part;
@@ -2911,9 +2796,116 @@ SE_belong2_genetranscript get_group_singleexon_reads_2gene(
     }
     SingleReads.file_SE_reads_gene_number = std::move(FileSingleGeneNumber);
     SingleReads.Transcript_with_SE_reads = std::move(SingleReads_inTranscripts);
-
     return SingleReads;
 }
+
+
+void write_single_exon_gtf_trace(int& FileNo,
+    std::unordered_map<std::string, std::string>& groupreadfiles,
+    std::unordered_map<std::string, std::vector<std::string>>& singleexonwithreads,
+    std::unordered_map<std::string, std::array<int,2>>& singleexongroupannotation,
+    std::ofstream& Updated_Files, std::ofstream& isoformFilePath,
+    std::unordered_map<std::string, std::string>& GTF_Transcript_Strand,
+    std::string& chrname) {
+
+    std::unordered_map<std::string, std::vector<double>> FileSingleExonNumber;
+    FileSingleExonNumber.reserve(singleexonwithreads.size());
+
+    std::unordered_map<std::string, std::vector<std::string>> remainReads;
+    remainReads.reserve(singleexonwithreads.size());
+
+    std::string updateBuffer;
+    std::string isoformBuffer;
+
+    for (const auto& eachAnno:singleexonwithreads) {
+        const std::string& transcript = eachAnno.first;
+        auto itAnno = singleexongroupannotation.find(transcript);
+
+        if (itAnno == singleexongroupannotation.end()) {
+            if (!eachAnno.second.empty()) remainReads.emplace(transcript, eachAnno.second);
+            continue;
+        }
+        if (eachAnno.second.empty()) continue;
+        const auto& exonRange = itAnno->second;
+
+        const auto strandIt = GTF_Transcript_Strand.find(transcript);
+        const std::string strand = (strandIt != GTF_Transcript_Strand.end()) ? strandIt->second : ".";
+
+        const size_t pos = eachAnno.first.find('|');
+        std::string first_part, second_part;
+        if (pos != std::string::npos) {
+            first_part  = transcript.substr(0, pos);
+            second_part = transcript.substr(pos + 1);
+        } else {
+            first_part = second_part = transcript;
+        }
+
+        updateBuffer.append(chrname); updateBuffer.push_back('\t');
+        updateBuffer.append("annotated_isoform\ttranscript\t");
+        updateBuffer.append(std::to_string(exonRange[0])); updateBuffer.push_back('\t');
+        updateBuffer.append(std::to_string(exonRange[1])); updateBuffer.append("\t.\t");
+        updateBuffer.append(strand); updateBuffer.append("\t.\tgene_id \"");
+        updateBuffer.append(first_part); updateBuffer.append("\"; transcript_id \"");
+        updateBuffer.append(second_part); updateBuffer.append("\";\n");
+
+        updateBuffer.append(chrname); updateBuffer.push_back('\t');
+        updateBuffer.append("annotated_isoform\texon\t");
+        updateBuffer.append(std::to_string(exonRange[0])); updateBuffer.push_back('\t');
+        updateBuffer.append(std::to_string(exonRange[1])); updateBuffer.append("\t.\t");
+        updateBuffer.append(strand); updateBuffer.append("\t.\tgene_id \"");
+        updateBuffer.append(first_part); 
+        updateBuffer.append("\"; transcript_id \"");
+        updateBuffer.append(second_part);
+        updateBuffer.append("\"; exon_number \"0\";\n");                
+
+        std::vector<double> fileCounts(FileNo, 0.0);
+
+        for (const auto& read : eachAnno.second) {
+            auto itGF = groupreadfiles.find(read);
+            const std::string& fileID = itGF->second;
+            int idx = std::stoi(fileID); // FileNo 由上层保证正确
+            fileCounts[idx] += 1;
+        }
+
+        FileSingleExonNumber.emplace(transcript, std::move(fileCounts));
+    }
+
+    if (Updated_Files.is_open()) {
+        std::unique_lock<std::mutex> lock(updatedGtfMutex);
+        Updated_Files << updateBuffer;
+    }   
+    
+    if (isoformFilePath.is_open()) {
+        for (const auto& kv : FileSingleExonNumber) {
+            const std::string& transcript = kv.first;
+            const std::vector<double>& counts = kv.second;
+            size_t pos = transcript.find('|');
+            std::string first_part, second_part;
+            if (pos != std::string::npos) {
+                first_part  = transcript.substr(0, pos);
+                second_part = transcript.substr(pos + 1);
+            } else {
+                first_part = second_part = transcript;
+            }
+            isoformBuffer.append(second_part);
+            isoformBuffer.push_back('\t');
+            isoformBuffer.append(first_part);
+            for (double x : counts) {
+                isoformBuffer.push_back('\t');
+                isoformBuffer.append(std::to_string(static_cast<long long>(x)));
+            }
+            isoformBuffer.push_back('\n');
+        }
+        {
+            std::unique_lock<std::mutex> lock(isoformCountMutex);
+            isoformFilePath << isoformBuffer;
+        }
+    }    
+
+    singleexonwithreads = std::move(remainReads);
+}
+
+
 
 
 void merge_high_sj(std::unordered_map<std::string, std::vector<std::array<int,2>>>& group_annotations, std::unordered_map<std::string, std::string>& transcript_strand, std::map<std::array<int,2>, int>& Grouphighsjs) {
@@ -2938,22 +2930,25 @@ void merge_high_sj(std::unordered_map<std::string, std::vector<std::array<int,2>
 
 
 std::unordered_map<std::size_t, std::vector<std::string>> classifyReadsVec(std::unordered_map<std::string, std::vector<std::array<int,2>>>& groupreadsjs) {
-    std::unordered_map<std::size_t, std::vector<std::string>> ClustersReads;
+    std::unordered_map<std::size_t, std::vector<std::string>> ClustersReads; 
     std::map<std::vector<std::array<int,2>>, std::size_t> readsj2sizet;
 
+    std::vector<std::array<int,2>> vec;
+    std::string vecname;
+    std::size_t cluster = 0;
     std::size_t clusterNumber = 0;
     for (const auto& pair : groupreadsjs) {
-        const std::string& vecname = pair.first;
-        const std::vector<std::array<int,2>>& vec = pair.second;
+        vecname = pair.first;
+        vec = pair.second;
         auto itsj = readsj2sizet.find(vec);
         if (itsj != readsj2sizet.end()) {
-            std::size_t exist_cluster_id = itsj->second;
-            ClustersReads[exist_cluster_id].push_back(vecname);
+            cluster = readsj2sizet[vec];
+            ClustersReads[cluster].push_back(vecname);
         } else {
             // 新的cluster;
             readsj2sizet[vec] = clusterNumber;
             ClustersReads[clusterNumber].push_back(vecname);
-            clusterNumber++;
+            clusterNumber = clusterNumber + 1;
         }
     }
     return ClustersReads;
@@ -2973,7 +2968,7 @@ std::unordered_map<std::size_t, std::array<int,2>> get_every_cluster_begin_end(s
             ExonbeginVec.push_back(AllReadBE[oneread][0]);
             ExonendVec.push_back(AllReadBE[oneread][1]);
         }
-        //分别对两个变量取值;
+
         auto min_it = std::min_element(ExonbeginVec.begin(), ExonbeginVec.end());
         auto max_it = std::max_element(ExonendVec.begin(), ExonendVec.end());
         CluserBeginEnd[Tuan.first][0] = *min_it;
@@ -2990,32 +2985,35 @@ struct ReferenceCluster
     std::unordered_map<std::size_t, std::vector<std::string>> Others;
 };
 
-ReferenceCluster get_FSM_and_others_sc(std::unordered_map<std::size_t, std::vector<std::string>>& ClustersReads, 
+
+ReferenceCluster get_FSM_and_others(std::unordered_map<std::size_t, std::vector<std::string>>& ClustersReads, 
                                    std::unordered_map<std::string, std::vector<std::array<int,2>>>& GroupAnno, 
                                    std::unordered_map<std::string, std::array<int,2>>& GroupAnnoBE, 
                                    std::unordered_map<std::string, std::array<int,2>>& AllReadBE, 
                                    std::unordered_map<std::string, std::vector<std::array<int,2>>>& AllSJs,
                                    std::unordered_map<std::string, std::string>& GroupReadFile, 
-                                   std::unordered_map<std::string, std::string>& GroupReadBarcode,
                                    std::ofstream& Trace) {
     ReferenceCluster FSMISMO = {};
 
     std::vector<std::array<int,2>> each_read_SJs; 
     std::vector<std::string> statis_FSM; 
     std::vector<std::string> statis_ISM; 
-    std::vector<int> ISM_flag; ISM_flag.reserve(30);
+    std::vector<int> ISM_flag; 
+    ISM_flag.reserve(30);
 
     std::string FSM_name; 
-    std::vector<int> minFSM; minFSM.reserve(30); 
+    std::vector<int> minFSM; 
+    minFSM.reserve(30); 
 
-    std::string first_part, second_part;
+    std::string first_part;
+    std::string second_part; 
 
     for (auto it = ClustersReads.begin(); it != ClustersReads.end(); ++it) {
         const auto& read_list = it->second;
         const auto& first_read = read_list[0];
         const auto& each_read_SJs_ref = AllSJs.at(first_read);
         each_read_SJs = each_read_SJs_ref;
-        
+
         statis_FSM.clear(); 
         statis_ISM.clear();
         for (const auto& pair : GroupAnno) {
@@ -3030,9 +3028,9 @@ ReferenceCluster get_FSM_and_others_sc(std::unordered_map<std::size_t, std::vect
                     ISM_flag.reserve(each_read_SJs.size());
                     for (const auto& element : each_read_SJs) {
                         auto it_pos = std::find(ref_sj.begin(), ref_sj.end(), element);
-                        if (it_pos == ref_sj.end()){
-                            ISM_flag.push_back(10000);  
-                            break; 
+                        if (it_pos == ref_sj.end()) {
+                            ISM_flag.push_back(10000);   
+                            break;
                         } else {
                             ISM_flag.push_back(it_pos - ref_sj.begin());
                         }
@@ -3043,7 +3041,7 @@ ReferenceCluster get_FSM_and_others_sc(std::unordered_map<std::size_t, std::vect
                         (ISM_flag.back() - ISM_flag.front() == (int)ISM_flag.size() - 1))
                     {
                         statis_ISM.push_back(pair.first);
-                    }                    
+                    }
                 }
             }
         }
@@ -3056,7 +3054,7 @@ ReferenceCluster get_FSM_and_others_sc(std::unordered_map<std::size_t, std::vect
                                     read_list.begin(), read_list.end());
             
             size_t pos = FSM_name.find('|');
-            if (pos != std::string::npos){
+            if (pos != std::string::npos) {
                 first_part = FSM_name.substr(0, pos);
                 second_part = FSM_name.substr(pos + 1);
             }
@@ -3073,8 +3071,6 @@ ReferenceCluster get_FSM_and_others_sc(std::unordered_map<std::size_t, std::vect
                     buffer += '\t';
                     buffer += first_part;
                     buffer += '\t';
-                    buffer += GroupReadBarcode[EachRead];
-                    buffer += '\t';
                     buffer += GroupReadFile[EachRead];
                     buffer += '\n';
                 }
@@ -3082,9 +3078,9 @@ ReferenceCluster get_FSM_and_others_sc(std::unordered_map<std::size_t, std::vect
                     std::unique_lock<std::mutex> lock(traceMutex);
                     Trace << buffer;
                 }
-            } 
+            }
 
-        } else if (!statis_FSM.empty()){
+        } else if (!statis_FSM.empty()) {
             std::string buffer;
             buffer.reserve(read_list.size() * 80);
 
@@ -3093,22 +3089,19 @@ ReferenceCluster get_FSM_and_others_sc(std::unordered_map<std::size_t, std::vect
                 entry.first = each_read_SJs;
                 entry.second.clear();
             }
-
             for (const auto& readx : read_list) { 
                 minFSM.clear();
                 minFSM.reserve(statis_FSM.size());
-
-                for (const auto& refx : statis_FSM){
+                for (const auto& refx : statis_FSM) {
                     minFSM.push_back(
                         std::abs(AllReadBE[readx][0] - GroupAnnoBE[refx][0]) +
                         std::abs(AllReadBE[readx][1] - GroupAnnoBE[refx][1])
                     );
                 }
+                int min_index = std::min_element(minFSM.begin(), minFSM.end()) - minFSM.begin();
 
-                int minmin = std::min_element(minFSM.begin(), minFSM.end()) - minFSM.begin();
-
-                FSM_name = statis_FSM[minmin];
-                FSMISMO.FSM[FSM_name].second.push_back(readx); 
+                FSM_name = statis_FSM[min_index];
+                FSMISMO.FSM[FSM_name].second.push_back(readx);
 
                 size_t pos = FSM_name.find('|');
                 if (pos != std::string::npos){
@@ -3122,23 +3115,21 @@ ReferenceCluster get_FSM_and_others_sc(std::unordered_map<std::size_t, std::vect
                 buffer += '\t';
                 buffer += first_part;
                 buffer += '\t';
-                buffer += GroupReadBarcode[readx];
-                buffer += '\t';
                 buffer += GroupReadFile[readx];
-                buffer += '\n';                
-            } 
-
+                buffer += '\n';                              
+            }
+             
             if (Trace.is_open()) {
                 std::unique_lock<std::mutex> lock(traceMutex);
                 Trace << buffer;
-            }                  
+            }
 
         } else { 
 
             if (statis_ISM.empty()){
                 FSMISMO.Others[it->first] = read_list;
-            } else {
-
+            } else{
+                //这种的情况是ISM类, 不用管是哪种ISM; //如果后续改识别ISM类型的时候, 更改这里; ★★★★★★★
                 FSMISMO.ISM[it->first] = read_list;
                 for (const auto& name : statis_ISM) {
                     auto itFSM = FSMISMO.FSM.find(name);
@@ -3156,8 +3147,11 @@ ReferenceCluster get_FSM_and_others_sc(std::unordered_map<std::size_t, std::vect
 
 
 
+
 struct HighLowClusters{
+    //所有的需要进一步进行识别的Cluster, 以及他们对应的数量;
     std::map<size_t, std::vector<std::string>> HighConClusters;
+    //淘汰的Cluster及其他们对应的数量;
     std::unordered_map<size_t, std::vector<std::string>> LowConClusters;
     std::unordered_map<size_t, std::string> HighStrand;
 };
@@ -3177,6 +3171,7 @@ HighLowClusters get_HighLow_clusters(std::unordered_map<std::size_t, std::vector
     std::size_t hashname; 
     std::vector<int> eachreadsign;
     
+    //中间用到的变量;
     int SumCount = 0;
     int StrandCount = 0;
     int pos1 = 0;
@@ -3188,6 +3183,7 @@ HighLowClusters get_HighLow_clusters(std::unordered_map<std::size_t, std::vector
     for (auto it = Others_Clusters.begin(); it != Others_Clusters.end(); ++it) {
         hashname = it->first; 
         each_cluster = it->second; 
+
         if (each_cluster.size() > 1){
             SumCount = 0;
             StrandCount = 0;
@@ -3197,7 +3193,7 @@ HighLowClusters get_HighLow_clusters(std::unordered_map<std::size_t, std::vector
 
             for (const auto& each:each_cluster){
                 eachreadsign = readsigns[each];
-                for (int i = 0; i < eachreadsign.size(); i++) {
+                for (auto i = 0; i < eachreadsign.size(); i++) {
                     if (eachreadsign[i] == 1) {
                         results[i] = results[i] + eachreadsign[i];
                         if (StrandCount == 2) {
@@ -3222,7 +3218,6 @@ HighLowClusters get_HighLow_clusters(std::unordered_map<std::size_t, std::vector
 
             if (SumCount == SjNumber) {
                 if (StrandFlag) {
-                    // 链不一致;
                     HighLowC.LowConClusters[hashname] = Others_Clusters[hashname];               
                 } else {
                     if (StrandCount == 1) {
@@ -3235,10 +3230,11 @@ HighLowClusters get_HighLow_clusters(std::unordered_map<std::size_t, std::vector
                 }
             } else {
                 HighLowC.LowConClusters[hashname] = Others_Clusters[hashname];
-                
             }
         } else {
+            
             HighLowC.LowConClusters[hashname] = Others_Clusters[hashname];
+            
         }
     }
 
@@ -3251,12 +3247,13 @@ HighLowClusters get_HighLow_clusters(std::unordered_map<std::size_t, std::vector
         SJs1 = AllSJs[clus1.second[0]];
         for (const auto& clus2: onlyHighC){
             SJs2 = AllSJs[clus2.second[0]];
-            if (SJs2.size()>SJs1.size()){
-                if (std::includes(SJs2.begin(), SJs2.end(), SJs1.begin(), SJs1.end())){
+            if (SJs2.size()>SJs1.size()) {
+                if (std::includes(SJs2.begin(), SJs2.end(), SJs1.begin(), SJs1.end())){                  
 
                     pos1 = std::find(SJs2.begin(), SJs2.end(), SJs1[0]) - SJs2.begin();
                     pos2 = std::find(SJs2.begin(), SJs2.end(), SJs1[SJs1.size()-1]) - SJs2.begin();
                     if (pos2-pos1 == SJs1.size()-1){
+
                         HighLowC.LowConClusters[clus1.first] = clus1.second;
                         onlyHighC_copy.erase(clus1.first);
                         onlyHighStrand_copy.erase(clus1.first);
@@ -3265,6 +3262,7 @@ HighLowClusters get_HighLow_clusters(std::unordered_map<std::size_t, std::vector
             }
         }
     }
+
     for (const auto& eachHighCluster:onlyHighC_copy){
         HighLowC.HighConClusters[eachHighCluster.first] = eachHighCluster.second;
         HighLowC.HighStrand[eachHighCluster.first] = onlyHighStrand_copy[eachHighCluster.first];
@@ -3273,20 +3271,17 @@ HighLowClusters get_HighLow_clusters(std::unordered_map<std::size_t, std::vector
 }
 
 
-
 void get_filtered_FSM(std::unordered_map<std::size_t, std::vector<std::string>>& LowReads, 
                       std::unordered_map<std::string, std::vector<std::array<int,2>>>& GroupAnno, 
                       std::unordered_map<std::string, std::pair<std::vector<std::array<int,2>>, std::vector<std::string>>>& AllFSM, 
                       std::unordered_map<std::string, std::vector<std::array<int,2>>>& AllSJs, 
                       std::unordered_map<std::string, std::string>& GroupReadFile,
-                      std::unordered_map<std::string, std::string>& GroupReadBarcode,
                       std::ofstream& Trace) {
 
     std::unordered_map<std::string, std::unordered_map<std::size_t, std::vector<std::string>>> RecycleAnnoName_value;
     std::set<std::size_t> DeleteItem;
-
+    
     int RecycleLength = 0;
-    int count = 0;
     std::string minAnnoName;
     int dis = 10000;
     int FL = 0;
@@ -3301,16 +3296,17 @@ void get_filtered_FSM(std::unordered_map<std::size_t, std::vector<std::string>>&
 
         potential_FSM.clear();
         for (const auto& each_anno:GroupAnno){
-
+            
             if (each_anno.second.size() == LowReadSJVec.size()){
                 RecycleLength = IntervalMerge(each_anno.second, LowReadSJVec) - IntervalIntersection(each_anno.second, LowReadSJVec) - findNonOverlappingIntervals(each_anno.second, LowReadSJVec);
-                if (RecycleLength < 60 and RecycleLength > 0) {
+                // if (RecycleLength < 20*LowReadSJVec.size() and RecycleLength > 0) {
+                if (RecycleLength < 60 and RecycleLength > 0) {    
                     potential_FSM[each_anno.first] = RecycleLength;
                 }
             }
         }
 
-        if (potential_FSM.size() == 1) {
+        if (potential_FSM.size() == 1){
 
             DeleteItem.insert(each_Readcluster.first);
 
@@ -3319,13 +3315,11 @@ void get_filtered_FSM(std::unordered_map<std::size_t, std::vector<std::string>>&
                 first_part = (*(potential_FSM.begin())).first.substr(0, pos);
                 second_part = (*(potential_FSM.begin())).first.substr(pos + 1);
             }
-
             if (Trace.is_open()) {
                 std::string buffer;
                 buffer.reserve(each_Readcluster.second.size() * 80);
                 for (const auto& EachRead : each_Readcluster.second) {
                     const auto& readFile = GroupReadFile[EachRead];
-                    const auto& readBarcode = GroupReadBarcode[EachRead];
                     buffer += EachRead;
                     buffer += '\t';
                     buffer += "simFSM\t";
@@ -3333,14 +3327,12 @@ void get_filtered_FSM(std::unordered_map<std::size_t, std::vector<std::string>>&
                     buffer += '\t';
                     buffer += first_part;
                     buffer += '\t';
-                    buffer += readBarcode;
-                    buffer += '\t';
                     buffer += readFile;
                     buffer += '\n';
                 }
                 {
                     std::unique_lock<std::mutex> lock(traceMutex);
-                    Trace << buffer;                    
+                    Trace << buffer;
                 }
             }                        
             if (RecycleAnnoName_value.find((*potential_FSM.begin()).first) != RecycleAnnoName_value.end()){
@@ -3353,6 +3345,7 @@ void get_filtered_FSM(std::unordered_map<std::size_t, std::vector<std::string>>&
             DeleteItem.insert(each_Readcluster.first);
             dis = 100000;
             FL = 0;
+            // 当前已经有全长的;
             for (const auto& Po:potential_FSM){
                 if (AllFSM.find(Po.first) != AllFSM.end()) {
                     if (AllFSM[Po.first].second.size() > FL) {
@@ -3368,27 +3361,23 @@ void get_filtered_FSM(std::unordered_map<std::size_t, std::vector<std::string>>&
                         minAnnoName = Po.first;
                     }
                 }
-            }
+            }            
             size_t pos = minAnnoName.find('|');
             if (pos != std::string::npos){
                 first_part = minAnnoName.substr(0, pos);
                 second_part = minAnnoName.substr(pos + 1);
             }            
-
             if (Trace.is_open()) {
                 std::string buffer;
                 buffer.reserve(each_Readcluster.second.size() * 70);
                 for (const auto& EachRead : each_Readcluster.second) {
                     const std::string& file = GroupReadFile[EachRead]; 
-                    const auto& readBarcode = GroupReadBarcode[EachRead];
                     buffer += EachRead;
                     buffer += '\t';
                     buffer += "simFSM\t";
                     buffer += second_part;
                     buffer += '\t';
                     buffer += first_part;
-                    buffer += '\t';
-                    buffer += readBarcode;
                     buffer += '\t';
                     buffer += file;
                     buffer += '\n';
@@ -3410,9 +3399,9 @@ void get_filtered_FSM(std::unordered_map<std::size_t, std::vector<std::string>>&
 
     std::vector<std::string> newName;
 
-    for (const auto& newFSM:RecycleAnnoName_value) {
+    for (const auto& newFSM:RecycleAnnoName_value){
         newName.clear();
-        for (const auto& allCluster:newFSM.second) { 
+        for (const auto& allCluster:newFSM.second){ 
             newName.insert(newName.end(), allCluster.second.begin(), allCluster.second.end());
         }
 
@@ -3433,6 +3422,8 @@ void get_filtered_FSM(std::unordered_map<std::size_t, std::vector<std::string>>&
 }
 
 
+
+
 struct SpliceChainClass
 {
     std::unordered_map<std::size_t, std::array<int,2>> ClusterCoverage;
@@ -3450,24 +3441,20 @@ SpliceChainClass generate_splice_chain_class(
                                 std::unordered_map<std::string, std::vector<int>> groupreadsigns,
                                 std::unordered_map<std::string, std::array<int,2>>& AnnoCoverage,
                                 std::unordered_map<std::string, std::string>& groupreadfiles,
-                                std::unordered_map<std::string, std::string>& groupreadbarcodes,
-                                std::unordered_map<std::string, std::string>& groupreadumis,
                                 std::ofstream& traceFilePath,
-                                const int& Sj_Support_Number, const int& umiMode) {
+                                const int& Sj_Support_Number, std::string& CHR) {
     SpliceChainClass SCC;
     ReferenceCluster FsmIsmOthers;
     HighLowClusters Others2HighLow;
     std::unordered_map<std::size_t, std::vector<std::string>> groupCluster = classifyReadsVec(groupreadsjs);
-    
-    // std::unordered_map<std::size_t, std::vector<std::string>> New_groupCluster = delete_umi_replicate(groupCluster, groupreadbarcodes, groupreadumis);
-    if (umiMode) delete_umi_replicate(groupCluster, groupreadbarcodes, groupreadumis);    
 
     SCC.ClusterCoverage = get_every_cluster_begin_end(groupCluster, groupreadcoverage);
-    FsmIsmOthers = get_FSM_and_others_sc(groupCluster, groupannotations, AnnoCoverage, groupreadcoverage, groupreadsjs, groupreadfiles, groupreadbarcodes, traceFilePath);
-    Others2HighLow = get_HighLow_clusters(FsmIsmOthers.Others, groupreadsjs, groupreadsigns, Sj_Support_Number);
+    FsmIsmOthers = get_FSM_and_others(groupCluster, groupannotations, AnnoCoverage, groupreadcoverage, groupreadsjs, groupreadfiles, traceFilePath); //readTraceMutex;
+    Others2HighLow = get_HighLow_clusters(FsmIsmOthers.Others, groupreadsjs, groupreadsigns, Sj_Support_Number);  
 
-    get_filtered_FSM(Others2HighLow.LowConClusters, groupannotations, FsmIsmOthers.FSM, groupreadsjs, groupreadfiles, groupreadbarcodes, traceFilePath);
+    get_filtered_FSM(Others2HighLow.LowConClusters, groupannotations, FsmIsmOthers.FSM, groupreadsjs, groupreadfiles, traceFilePath); //readTraceMutex;     
 
+    // 将有用结果输出;
     SCC.FSM = FsmIsmOthers.FSM;
     SCC.ISM = FsmIsmOthers.ISM;
     SCC.HighConClusters = Others2HighLow.HighConClusters;
@@ -3478,6 +3465,8 @@ SpliceChainClass generate_splice_chain_class(
 }
 
 
+
+
 struct DistanceInform
 {
     std::unordered_map<int, std::set<int>> NodeDistanceSet;
@@ -3485,7 +3474,7 @@ struct DistanceInform
     std::unordered_map<int, std::string> Index2Anno;
     std::unordered_map<int, int> Index2Count;
     std::unordered_map<int, std::size_t> Index2hashname;
-    std::unordered_map<int, std::string> Index2novelname; 
+    std::unordered_map<int, std::string> Index2novelname;
 };
 
 
@@ -3493,10 +3482,10 @@ DistanceInform get_distance_matrix(std::unordered_map<std::string, std::vector<s
                                    std::map<std::size_t, std::vector<std::string>>& HighClusters, 
                                    std::unordered_map<std::string, std::vector<std::array<int,2>>>& groupreadsjs, int DistanceG, 
                                    std::unordered_map<std::string, std::pair<std::vector<std::array<int,2>>, std::vector<std::string>>>& AllFSM){
-    
+
     DistanceInform Graph_Init_inform;
-    
-    for (int i = 0; i < groupannotations.size()+HighClusters.size(); ++i){
+
+    for (auto i = 0; i < groupannotations.size()+HighClusters.size(); ++i){
         Graph_Init_inform.NodeDistanceSet[i] = {};
     }
 
@@ -3506,12 +3495,14 @@ DistanceInform get_distance_matrix(std::unordered_map<std::string, std::vector<s
     int NameNumber = 0;
     int HighNumber = groupannotations.size();
 
+    int Merge_L;
+    int Inter_L;
+    int Nonoverlap_L;
+
     if (groupannotations.size() != 0){
         for (const auto& EachAnno : groupannotations){
             Graph_Init_inform.Index2Anno[NameNumber] = EachAnno.first;
-
             auto it = AllFSM.find(EachAnno.first);
-
             if (it != AllFSM.end()) {
                 Graph_Init_inform.Index2Count[NameNumber] = (it->second).second.size();
             } else{
@@ -3522,8 +3513,11 @@ DistanceInform get_distance_matrix(std::unordered_map<std::string, std::vector<s
                 HighNumber = groupannotations.size();
                 for (const auto& eachHC : HighClusters){
                     SJVec1 = groupreadsjs[eachHC.second[0]];
-                    LineElement = IntervalMerge(EachAnno.second, SJVec1) - IntervalIntersection(EachAnno.second, SJVec1) - findNonOverlappingIntervals(EachAnno.second, SJVec1);
-
+                    Merge_L = IntervalMerge(EachAnno.second, SJVec1);
+                    Inter_L = IntervalIntersection(EachAnno.second, SJVec1);
+                    Nonoverlap_L = findNonOverlappingIntervals(EachAnno.second, SJVec1);
+                    LineElement = Merge_L - Inter_L - Nonoverlap_L;
+                    // LineElement = IntervalMerge(EachAnno.second, SJVec1) - IntervalIntersection(EachAnno.second, SJVec1);
                     if ((LineElement < DistanceG+1) && (LineElement > 0)){
                         Graph_Init_inform.NodeDistanceSet[NameNumber].insert(HighNumber);
                         Graph_Init_inform.NodeDistanceSet[HighNumber].insert(NameNumber);
@@ -3536,6 +3530,7 @@ DistanceInform get_distance_matrix(std::unordered_map<std::string, std::vector<s
     }
 
     if (HighClusters.size() != 0) {
+
         for (const auto& HC1 : HighClusters){
             SJVec1 = groupreadsjs[HC1.second[0]];
             Graph_Init_inform.Index2Unknown[NameNumber] = SJVec1;
@@ -3544,7 +3539,10 @@ DistanceInform get_distance_matrix(std::unordered_map<std::string, std::vector<s
             HighNumber = groupannotations.size();
             for (const auto& HC2 : HighClusters){
                 SJVec2 = groupreadsjs[HC2.second[0]];
-                LineElement = IntervalMerge(SJVec1, SJVec2) - IntervalIntersection(SJVec1, SJVec2) - findNonOverlappingIntervals(SJVec1, SJVec2);
+                Merge_L = IntervalMerge(SJVec1, SJVec2);
+                Inter_L = IntervalIntersection(SJVec1, SJVec2);
+                Nonoverlap_L = findNonOverlappingIntervals(SJVec1, SJVec2);
+                LineElement = Merge_L - Inter_L - Nonoverlap_L;
                 if ((LineElement < DistanceG+1) && (LineElement > 0)){
                     Graph_Init_inform.NodeDistanceSet[NameNumber].insert(HighNumber);
                 }
@@ -3572,7 +3570,6 @@ int find_max_neighborhood_node(std::set<int>& fireNode, std::unordered_map<int, 
 
 std::vector<std::vector<int>> Find_Maximal_Cliques(std::unordered_map<int, std::set<int>>& adj){
     std::vector<std::vector<int>> CliqueVec;
-    if (adj.empty()) return CliqueVec;
     //初始化Q;
     std::vector<int> Q = {};
     std::set<int> cand;
@@ -3586,71 +3583,80 @@ std::vector<std::vector<int>> Find_Maximal_Cliques(std::unordered_map<int, std::
     std::set<int> subg_q;
     std::set<int> cand_q;
 
-    //adj已经有了;
-    for (const auto& eachnode:adj) cand.insert(eachnode.first);
-    subg = cand;
-    Q.push_back(-1);    
-    max_node = find_max_neighborhood_node(subg, adj);
-    std::set_difference(cand.begin(), cand.end(),
-                        adj[max_node].begin(), adj[max_node].end(),
-                        std::inserter(ext_u, ext_u.begin()));
+    if (adj.size() == 0){
+        return CliqueVec;
+    } else{
+        //adj已经有了;
+        for (const auto& eachnode:adj) cand.insert(eachnode.first);
+        subg = cand;
+        Q.push_back(-1);
+        //首先找到邻居节点最多的节点;        
+        max_node = find_max_neighborhood_node(subg, adj);
 
-    while (true) {
-        if (!ext_u.empty()) {
-            q = *ext_u.begin(); 
-            ext_u.erase(q);
-            cand.erase(q);
-            Q.back() = q;
-            adj_q = adj[q];
-            subg_q.clear();
-            std::set_intersection(subg.begin(), subg.end(),
-                                adj_q.begin(), adj_q.end(),
-                                std::inserter(subg_q, subg_q.begin())); //subg_q
-            if (subg_q.empty())
+        std::set_difference(cand.begin(), cand.end(),
+                            adj[max_node].begin(), adj[max_node].end(),
+                            std::inserter(ext_u, ext_u.begin()));
+
+        while (true)
+        {
+            if (!ext_u.empty()) 
             {
-                CliqueVec.push_back(Q);
-            } 
+                q = *ext_u.begin(); //获取集合中的第一个元素
+                ext_u.erase(q);
+                cand.erase(q);
+                Q.back() = q;
+                adj_q = adj[q];
+                subg_q.clear();
+                std::set_intersection(subg.begin(), subg.end(),
+                                    adj_q.begin(), adj_q.end(),
+                                    std::inserter(subg_q, subg_q.begin())); //subg_q
+                if (subg_q.empty())
+                {
+                    CliqueVec.push_back(Q);
+                } 
+                else
+                {   
+                    cand_q.clear();
+                    std::set_intersection(cand.begin(), cand.end(),
+                                    adj_q.begin(), adj_q.end(),
+                                    std::inserter(cand_q, cand_q.begin())); //cand_q
+                
+                    if (!cand_q.empty())
+                    {
+                        stack.push_back(std::make_tuple(subg, cand, ext_u));
+                        Q.push_back(-1); //添加一个占位符;
+                        subg = subg_q;
+                        cand = cand_q;
+                        max_node = find_max_neighborhood_node(subg, adj);
+                        ext_u.clear();
+                        std::set_difference(cand.begin(), cand.end(),
+                            adj[max_node].begin(), adj[max_node].end(),
+                            std::inserter(ext_u, ext_u.begin()));
+                    } 
+                }
+            }
             else
             {   
-                cand_q.clear();
-                std::set_intersection(cand.begin(), cand.end(),
-                                adj_q.begin(), adj_q.end(),
-                                std::inserter(cand_q, cand_q.begin())); //cand_q
-            
-                if (!cand_q.empty())
+                if (stack.size() != 0 && Q.size() != 0)
                 {
-                    stack.push_back(std::make_tuple(subg, cand, ext_u));
-                    Q.push_back(-1); //添加一个占位符;
-                    subg = subg_q;
-                    cand = cand_q;
-                    max_node = find_max_neighborhood_node(subg, adj);
-                    ext_u.clear();
-                    std::set_difference(cand.begin(), cand.end(),
-                        adj[max_node].begin(), adj[max_node].end(),
-                        std::inserter(ext_u, ext_u.begin()));
+                    Q.pop_back();
+                    std::tie(subg, cand, ext_u) = stack.back();
+                    stack.pop_back();
                 } 
+                else
+                {
+                    break;
+                }
             }
         }
-        else
-        {   
-            if (stack.size() != 0 && Q.size() != 0)
-            {
-                Q.pop_back();
-                std::tie(subg, cand, ext_u) = stack.back();
-                stack.pop_back();
-            } 
-            else
-            {
-                break;
-            }
-        }
+        return CliqueVec;
     }
-    return CliqueVec;
 }
 
 
+
 bool compareBySize(const std::vector<int>& a, const std::vector<int>& b) {
-    
+
     if (a.empty() && b.empty()) {
         return false; 
     }
@@ -3662,7 +3668,6 @@ bool compareBySize(const std::vector<int>& a, const std::vector<int>& b) {
     }
     auto AminElement = std::min_element(a.begin(), a.end());
     auto BminElement = std::min_element(b.begin(), b.end());
-    // 比较最小元素
     if (*AminElement != *BminElement) {
         return *AminElement < *BminElement; 
     }
@@ -3685,9 +3690,7 @@ DetectionResults Transcript_Detection(std::vector<std::vector<int>>& CqVec,
                                       std::unordered_map<int, int>& Number2Count) {
 
     DetectionResults Node_Results = {};
-    if (CqVec.empty()) return Node_Results;
 
-    //函数用到的中间变量;
     std::set<int> subgraph_known_true_nodes;
     std::set<int> subgraph_remain_nodes;
     int standard_read_number = std::numeric_limits<int>::max();
@@ -3698,155 +3701,222 @@ DetectionResults Transcript_Detection(std::vector<std::vector<int>>& CqVec,
         Node_Results.NodesKnownTrue.insert(Anno.first);
     }
 
-    if (CqVec.size() > 1) {
-        std::sort(CqVec.begin(), CqVec.end(), compareBySize);
-    }
-    //遍历每个团;
-    for (const auto& eachClique : CqVec){
-        standard_read_number = std::numeric_limits<int>::max();
+    if (CqVec.size() != 0){
 
-        std::set<int> CliqueSet(eachClique.begin(), eachClique.end());
-        subgraph_known_true_nodes.clear();
-        std::set_intersection(CliqueSet.begin(), CliqueSet.end(), Node_Results.NodesKnownTrue.begin(), Node_Results.NodesKnownTrue.end(),
-                        std::inserter(subgraph_known_true_nodes, subgraph_known_true_nodes.begin()));
-        subgraph_remain_nodes.clear();
-        std::set_difference(CliqueSet.begin(), CliqueSet.end(), subgraph_known_true_nodes.begin(), subgraph_known_true_nodes.end(),
-                    std::inserter(subgraph_remain_nodes, subgraph_remain_nodes.begin()));
+        if (CqVec.size() > 1) {
+            std::sort(CqVec.begin(), CqVec.end(), compareBySize);
+        }
 
-        if (subgraph_known_true_nodes.size() != 0){
+        for (const auto& eachClique : CqVec) {
+            standard_read_number = std::numeric_limits<int>::max();
 
-            if (subgraph_known_true_nodes.size() == 1){
-                standard_read_number = Number2Count[(*subgraph_known_true_nodes.begin())];
-            } else {
+            std::set<int> CliqueSet(eachClique.begin(), eachClique.end());
+            subgraph_known_true_nodes.clear();
+            std::set_intersection(CliqueSet.begin(), CliqueSet.end(), Node_Results.NodesKnownTrue.begin(), Node_Results.NodesKnownTrue.end(),
+                          std::inserter(subgraph_known_true_nodes, subgraph_known_true_nodes.begin()));
+            
+            subgraph_remain_nodes.clear();
+            std::set_difference(CliqueSet.begin(), CliqueSet.end(), subgraph_known_true_nodes.begin(), subgraph_known_true_nodes.end(),
+                        std::inserter(subgraph_remain_nodes, subgraph_remain_nodes.begin()));
 
-                for(const auto& each_True_node : subgraph_known_true_nodes){
-                    if (Number2Count[each_True_node] < standard_read_number) {
-                        standard_read_number = Number2Count[each_True_node];
-                    }
-                }
-            }
+            if (subgraph_known_true_nodes.size() != 0) {
+                if (subgraph_known_true_nodes.size() == 1) {
+                    standard_read_number = Number2Count[(*subgraph_known_true_nodes.begin())];
+                } else {
 
-            if (subgraph_remain_nodes.size() != 0){ 
+                    for(const auto& each_True_node : subgraph_known_true_nodes) {
 
-                for (const auto& eachknownnode:subgraph_known_true_nodes){
-                    Node_Results.TrueNodeSet.insert(subgraph_known_true_nodes.begin(), subgraph_known_true_nodes.end());
-                }
-
-                for (const auto& each_remain_node : subgraph_remain_nodes){
-                    
-                    if (standard_read_number == 0){
-                        Node_Results.FalseNodeSet.insert(each_remain_node);
-                    } else {
-                        if (Number2Count[each_remain_node] < standard_read_number){
-                            Node_Results.FalseNodeSet.insert(each_remain_node);
-                        } else {
-                            Node_Results.TrueNodeSet.insert(each_remain_node);
+                        if (Number2Count[each_True_node] < standard_read_number) {
+                            standard_read_number = Number2Count[each_True_node];
                         }
                     }
                 }
-            } else { 
 
-                for (const auto& eachknownnode:subgraph_known_true_nodes){
-                    if (Number2Count[eachknownnode] > 0){
-                        Node_Results.TrueNodeSet.insert(eachknownnode);
+                if (subgraph_remain_nodes.size() != 0) { 
+
+                    for (const auto& eachknownnode:subgraph_known_true_nodes) {
+                        Node_Results.TrueNodeSet.insert(subgraph_known_true_nodes.begin(), subgraph_known_true_nodes.end());
                     }
-                } 
+
+                    for (const auto& each_remain_node : subgraph_remain_nodes){
+                        if (standard_read_number == 0) {
+                            Node_Results.FalseNodeSet.insert(each_remain_node);
+                        } else {
+                            if (Number2Count[each_remain_node] < standard_read_number){
+                                Node_Results.FalseNodeSet.insert(each_remain_node);
+                            } else {
+                                Node_Results.TrueNodeSet.insert(each_remain_node);
+                            }
+                        }
+                    }
+                } else { 
+                    for (const auto& eachknownnode:subgraph_known_true_nodes) {
+                        // 十分关键; 对于速度; ☆★☆;☆★☆;☆★☆;☆★☆;☆★☆
+                        if (Number2Count[eachknownnode] > 0) {
+                            Node_Results.TrueNodeSet.insert(eachknownnode);
+                        }
+                    } 
+                }
+
+            } else {
+
+                if (subgraph_remain_nodes.size() == 1){
+                    if (Number2Count[*subgraph_remain_nodes.begin()] > 0) {
+                        Node_Results.TrueNodeSet.insert(*subgraph_remain_nodes.begin());
+                    }
+
+                } else{
+                    max_node_value = 0;
+                    for (const auto& each_remain_node : subgraph_remain_nodes){
+                        if (max_node_value < Number2Count[each_remain_node]){
+                            max_node_value = Number2Count[each_remain_node];
+                        }
+                    }
+                    for (const auto& each_remain_node : subgraph_remain_nodes){
+                        if (max_node_value == Number2Count[each_remain_node]){
+                            Node_Results.TrueNodeSet.insert(each_remain_node);
+                        }
+                        else
+                        {
+                            Node_Results.FalseNodeSet.insert(each_remain_node);
+                        }
+                    }   
+                }
             }
+        }
 
-        } else {
-            if (subgraph_remain_nodes.size() == 1){
-                if (Number2Count[*subgraph_remain_nodes.begin()] > 0) {
-                    Node_Results.TrueNodeSet.insert(*subgraph_remain_nodes.begin());
-                }
-            } else{
-                max_node_value = 0;
-                for (const auto& each_remain_node : subgraph_remain_nodes){
-                    if (max_node_value < Number2Count[each_remain_node]){
-                        max_node_value = Number2Count[each_remain_node];
-                    }
-                }
-                for (const auto& each_remain_node : subgraph_remain_nodes){
-                    if (max_node_value == Number2Count[each_remain_node]){
-                        Node_Results.TrueNodeSet.insert(each_remain_node);
-                    }
-                    else
-                    {
-                        Node_Results.FalseNodeSet.insert(each_remain_node);
-                    }
-                }   
+        for (const auto& eachFalse:Node_Results.FalseNodeSet){
+            auto iter = Node_Results.TrueNodeSet.find(eachFalse);
+            if (iter != Node_Results.TrueNodeSet.end()){
+                Node_Results.TrueNodeSet.erase(eachFalse);
             }
         }
     }
-    for (const auto& eachFalse:Node_Results.FalseNodeSet){
-        auto iter = Node_Results.TrueNodeSet.find(eachFalse);
-        if (iter != Node_Results.TrueNodeSet.end()) {
-            Node_Results.TrueNodeSet.erase(eachFalse);
-        }
-    }
-    
     return Node_Results;
 }
 
 
-struct Solvent_sc {
-    std::map<std::string, std::vector<std::string>> File_FSM;
-    std::map<std::size_t, std::vector<std::string>> File_ISM;
-    std::map<std::size_t, std::vector<std::string>> File_HighConClusters;
-    std::map<std::size_t, std::vector<std::string>> File_LowConClusters;
+struct Solvent {
+    std::map<std::string, std::unordered_map<std::string, int>> File_FSM;
+    std::map<std::string, std::map<std::size_t, std::vector<std::string>>> File_ISM;
+    std::map<std::string, std::map<std::size_t, std::vector<std::string>>> File_HighConClusters;
+    std::map<std::string, std::map<std::size_t, std::vector<std::string>>> File_LowConClusters;
 };
 
-Solvent_sc get_Solvent_FsmIsmHigh(SpliceChainClass& FsmIsmHigh, int& FileNumber, GroupInformation& groupinformations) {
-    Solvent_sc FileSpliceChains;
+Solvent get_Solvent_FsmIsmHigh(SpliceChainClass& FsmIsmHigh, int& FileNumber, GroupInformation& groupinformations) {
+    Solvent FileSpliceChains;
+    std::unordered_map<std::string, int> thisTranscript_File2Count; // FSM的临时变量;
+    std::map<std::string, std::vector<std::string>> thisTranscript_File2Count_ISM; // ISM和High的临时变量;
+    std::string Fi;
 
-    std::string thisFileString = std::to_string(FileNumber);
-    
     if (FsmIsmHigh.FSM.size() > 0) {
+
+        for (int i = 0; i < FileNumber; i++) {
+            Fi = std::to_string(i);
+            FileSpliceChains.File_FSM[Fi] = {};
+        }        
+
         for (const auto& eachCluster:FsmIsmHigh.FSM) {
+            thisTranscript_File2Count.clear();
+            for (int i = 0; i < FileNumber; i++) {
+                Fi = std::to_string(i);
+                thisTranscript_File2Count[Fi] = 0;
+            }
             std::string AnnoName = eachCluster.first;
-            FileSpliceChains.File_FSM[AnnoName] = {};
+ 
             for (const auto& eachRead:eachCluster.second.second) {
+
                 std::string read_file = groupinformations.GroupReadFiles[eachRead];
-                if (read_file == thisFileString) {
-                    FileSpliceChains.File_FSM[AnnoName].push_back(eachRead);
+                thisTranscript_File2Count[read_file] = thisTranscript_File2Count[read_file] + 1;
+            }
+
+            for (const auto& eachFile:thisTranscript_File2Count) {
+                if (eachFile.second > 0) {
+                    FileSpliceChains.File_FSM[eachFile.first][AnnoName] = eachFile.second;
                 }
-            }        
+            }            
         }
-    } 
+    } // 结束;
 
     if (FsmIsmHigh.ISM.size() > 0) {
+        for (int i = 0; i < FileNumber; i++) {
+            FileSpliceChains.File_ISM[std::to_string(i)] = {};
+        }
         for (const auto& eachCluster:FsmIsmHigh.ISM) {
+            thisTranscript_File2Count_ISM.clear();
+            for (int i = 0; i < FileNumber; i++) {
+                thisTranscript_File2Count_ISM[std::to_string(i)] = {};
+            }
             std::size_t NonName = eachCluster.first;
-            FileSpliceChains.File_ISM[NonName] = {};
+            // 对这个ISM所属的每条reads进行循环;
             for (const auto& eachRead:eachCluster.second) {
+                // 这条read所在的文件;
                 std::string read_file = groupinformations.GroupReadFiles[eachRead];
-                if (read_file == thisFileString) {
-                    FileSpliceChains.File_ISM[NonName].push_back(eachRead);
+                thisTranscript_File2Count_ISM[read_file].push_back(eachRead);
+            }
+            // 所有的reads循环结束;
+            // 结果填写到ISM中;
+            for (const auto& eachFile:thisTranscript_File2Count_ISM) {
+                if (eachFile.second.size() > 0) {
+                    FileSpliceChains.File_ISM[eachFile.first][NonName] = eachFile.second;
                 }
             }
         }
     }
 
+    // 拆分HighConfidenceClusters;
     if (FsmIsmHigh.HighConClusters.size() > 0) {
+        // 首先初始化;
+        for (int i = 0; i < FileNumber; i++) {
+            FileSpliceChains.File_HighConClusters[std::to_string(i)] = {};
+        }
+        // 对每个HighConCluster循环;
         for (const auto& eachCluster:FsmIsmHigh.HighConClusters) {
+            thisTranscript_File2Count_ISM.clear();
+            for (int i = 0; i < FileNumber; i++) {
+                thisTranscript_File2Count_ISM[std::to_string(i)] = {};
+            }
             std::size_t NonName = eachCluster.first;
-            FileSpliceChains.File_HighConClusters[NonName] = {};
+            // 对这个HighConCluster所属的每条reads进行循环;
             for (const auto& eachRead:eachCluster.second) {
+                // 这条read所在的文件;
                 std::string read_file = groupinformations.GroupReadFiles[eachRead];
-                if (read_file == thisFileString) {
-                    FileSpliceChains.File_HighConClusters[NonName].push_back(eachRead);
+                thisTranscript_File2Count_ISM[read_file].push_back(eachRead);
+            }
+            // 所有的reads循环结束;
+            // 结果填写到HighConCluster中;
+            for (const auto& eachFile:thisTranscript_File2Count_ISM) {
+                if (eachFile.second.size() > 0) {
+                    FileSpliceChains.File_HighConClusters[eachFile.first][NonName] = eachFile.second;
                 }
-            }      
+            }             
         }
     }
 
+    // 拆分LowConfidenceClusters;
     if (FsmIsmHigh.LowConClusters.size() > 0) {
+        // 首先初始化;
+        for (int i = 0; i < FileNumber; i++) {
+            FileSpliceChains.File_LowConClusters[std::to_string(i)] = {};
+        }
+        // 对每个LowConCluster循环;
         for (const auto& eachCluster:FsmIsmHigh.LowConClusters) {
+            thisTranscript_File2Count_ISM.clear();
+            for (int i = 0; i < FileNumber; i++) {
+                thisTranscript_File2Count_ISM[std::to_string(i)] = {};
+            }
             std::size_t NonName = eachCluster.first;
-            FileSpliceChains.File_LowConClusters[NonName] = {};
+            // 对这个LowConCluster所属的每条reads进行循环;            
             for (const auto& eachRead:eachCluster.second) {
+                // 这条read所在的文件;
                 std::string read_file = groupinformations.GroupReadFiles[eachRead];
-                if (read_file == thisFileString) {
-                    FileSpliceChains.File_LowConClusters[NonName].push_back(eachRead);
+                thisTranscript_File2Count_ISM[read_file].push_back(eachRead);                
+            }
+            // 所有的reads循环结束;
+            // 结果填写到LowConCluster中;
+            for (const auto& eachFile:thisTranscript_File2Count_ISM) {
+                if (eachFile.second.size() > 0) {
+                    FileSpliceChains.File_LowConClusters[eachFile.first][NonName] = eachFile.second;
                 }
             }
         }
@@ -3860,18 +3930,18 @@ std::string get_co_sj_gene(std::vector<std::array<int,2>>& novel_isoform,
                             std::unordered_map<std::string, std::array<int,2>>& gene_set,
                             std::unordered_map<std::string, std::vector<std::string>>& gene2tx,
                             std::unordered_map<std::string, std::vector<std::array<int,2>>>& tx2sj) {
-    //
+
     std::vector<std::string> TempGene;
     std::vector<int> TempDist;
     std::set<std::array<int,2>> SJ_set; 
     std::vector<std::string> ALL_tx;
-    std::set<std::array<int, 2>> novel_isoform_set(novel_isoform.begin(), novel_isoform.end());
-    std::set<std::array<int, 2>> intersection;
+    // std::set<std::array<int, 2>> intersection;
+    int intersection{0};
 
     // 对每个基因循环;
     for (const auto& A_Gene:gene_set) {
         SJ_set.clear();
-        intersection.clear();
+        // intersection.clear();
         TempGene.push_back(A_Gene.first);
         ALL_tx = gene2tx[A_Gene.first];
         for (const auto& A_Tx:ALL_tx) {
@@ -3880,9 +3950,9 @@ std::string get_co_sj_gene(std::vector<std::array<int,2>>& novel_isoform,
                 SJ_set.insert(tx2sj[A_Tx].begin(), tx2sj[A_Tx].end());
             }
         }
-        std::set_intersection(novel_isoform_set.begin(), novel_isoform_set.end(), SJ_set.begin(), SJ_set.end(),
-                          std::inserter(intersection, intersection.begin()));
-        TempDist.push_back(intersection.size());
+        std::vector<std::array<int, 2>> SJ_vec(SJ_set.begin(), SJ_set.end());
+        intersection = IntervalIntersection(SJ_vec, novel_isoform);
+        TempDist.push_back(intersection);
     }
     // 判断哪个基因多;
     auto max_it = std::max_element(TempDist.begin(), TempDist.end());
@@ -3904,28 +3974,25 @@ struct OutputInformation
 {
     std::unordered_map<std::string, std::pair<std::vector<std::array<int,2>>, double>> Transcript_Annotations;
     std::unordered_map<std::string, std::string> transcript2gene;
+    std::unordered_map<std::string, std::unordered_map<std::string, double>> File_TranscriptNumber;
 };
 
-OutputInformation Write_Detection_Transcript2gtf_AllFiles(std::ofstream& Updated_Files, std::ofstream& Trace,
+//18. 将识别的结果输出到txt;
+OutputInformation Write_Detection_Transcript2gtf(std::ofstream& Updated_Files, std::ofstream& Trace,
                                                 DetectionResults& noderesults, DistanceInform& Disinform, 
                                                 std::unordered_map<std::string, std::vector<std::array<int,2>>>& groupannotations, 
                                                 std::unordered_map<std::string, std::vector<std::array<int,2>>>& Annoexon, 
                                                 std::unordered_map<std::size_t, std::array<int, 2>>& groupreadcoverage, 
-                                                std::unordered_map<std::string, std::array<int,2>>& groupallgene, 
+                                                std::unordered_map<std::string, std::array<int,2>>& groupallgene,  
                                                 std::unordered_map<std::string, std::array<int,2>>& Annogenecovergae, 
                                                 std::unordered_map<std::string, std::string>& GTF_Transcript_Strand, 
                                                 std::unordered_map<size_t, std::string>& High_Strand, 
                                                 std::string& chrname, std::string& group_size, 
                                                 std::map<size_t, std::vector<std::string>>& HighClusters,
                                                 std::unordered_map<std::string, std::string>& groupreadfiles,
-                                                std::unordered_map<std::string, std::string>& groupreadbarcodes,
-                                                std::map<std::string, std::set<std::string>>& allfilebarcodeset,
-                                                std::unordered_map<std::string, std::vector<std::string>>& gtf_gene2tx,
-                                                std::unordered_map<std::string, std::string>& gtf_gene_std) {
+                                                std::unordered_map<std::string, std::vector<std::string>>& gtf_gene2tx) {
     OutputInformation FinalAnnotations;
-    if (noderesults.TrueNodeSet.empty()) return FinalAnnotations;
     std::string itsname;
-    std::string itsbarcode;
     std::vector<std::array<int,2>> itssj;
     std::vector<std::array<int,2>> itsexon;
     std::vector<std::string> TempGene;
@@ -3937,28 +4004,28 @@ OutputInformation Write_Detection_Transcript2gtf_AllFiles(std::ofstream& Updated
     std::string first_part;
     std::string second_part;
 
-    if (Updated_Files.is_open()) {
-
+    if (Updated_Files.is_open()){
+        // 第一次
         for (const auto aaa:noderesults.TrueNodeSet) {
-
-            if (aaa < Disinform.Index2Anno.size()) {
-
+            if (aaa < Disinform.Index2Anno.size()){
+                //有注释的部分;
                 itsname = Disinform.Index2Anno[aaa];
                 itssj = groupannotations[itsname];
                 itsexon = Annoexon[itsname];
                 FinalAnnotations.Transcript_Annotations[itsname].first = itssj;
                 FinalAnnotations.Transcript_Annotations[itsname].second = Disinform.Index2Count[aaa];
-
+                
                 size_t pos = itsname.find('|');
                 if (pos != std::string::npos) {
+                    // 根据 "|" 将字符串分割为两部分
                     first_part = itsname.substr(0, pos);
                     second_part = itsname.substr(pos + 1);
                 }
-                {
+                {   
                     if (!itsexon.empty()) {
                         std::unique_lock<std::mutex> lock(updatedGtfMutex);
                         Updated_Files << chrname << '\t' << "annotated_isoform" << '\t' << "transcript" << '\t' << itsexon[0][0] << '\t' << itsexon[itsexon.size()-1][1] << '\t' << "." << '\t' << GTF_Transcript_Strand[itsname] << '\t' << '.' << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << second_part << "\";" << '\n';
-                        for (int i = 0; i < itsexon.size(); i++) {
+                        for (auto i = 0; i < itsexon.size(); i++) {
                             Updated_Files << chrname << '\t' << "annotated_isoform" << '\t' << "exon" << '\t' << itsexon[i][0] << '\t' << itsexon[i][1] << '\t' << "." << '\t' << GTF_Transcript_Strand[itsname] << '\t' << '.' << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << second_part << "\"; exon_number \"" << i << "\";" << '\n';
                         }
                     }
@@ -3974,8 +4041,10 @@ OutputInformation Write_Detection_Transcript2gtf_AllFiles(std::ofstream& Updated
                 FinalAnnotations.Transcript_Annotations[itsname].first = itssj;
                 FinalAnnotations.Transcript_Annotations[itsname].second = Disinform.Index2Count[aaa];
                 nameya = Disinform.Index2hashname[aaa];
-                BE = groupreadcoverage[nameya];
-                
+                std::array<int,2> exonBE = groupreadcoverage[nameya];
+                BE[0] = itssj.front()[0];
+                BE[1] = itssj.back()[1];
+
                 TempGene.clear();
                 if (groupallgene.size() != 0) {
                     TempGeneName = get_co_sj_gene(itssj, groupallgene, gtf_gene2tx, groupannotations);
@@ -3986,26 +4055,26 @@ OutputInformation Write_Detection_Transcript2gtf_AllFiles(std::ofstream& Updated
                         } else {
                             first_part = "NA";
                         }
-    
+                        
                     } else {
                         for (const auto& every_gene:groupallgene) {
-                            if (BE[0] > Annogenecovergae[every_gene.first][0] and BE[1] < Annogenecovergae[every_gene.first][1]){
+                            if (BE[0] > Annogenecovergae[every_gene.first][0] and BE[1] < Annogenecovergae[every_gene.first][1]) {
                                 TempGene.push_back(every_gene.first);
                             }
                         }
-                        if (TempGene.size() == 0){
+                        if (TempGene.size() == 0) {
                             first_part = "NA";
                         } else if (TempGene.size() == 1) {
                             first_part = TempGene[0];
                         } else {
                             TempDist.clear();
                             for (const auto& each_gene:TempGene){
-                                int a = abs(BE[1] - Annogenecovergae[each_gene][1]);
-                                int b = abs(Annogenecovergae[each_gene][0] - BE[0]);
-                                TempDist.push_back((a>b)?a:b);
-                            }
+                                int a = abs(exonBE[1] - Annogenecovergae[each_gene][1]);
+                                int b = abs(Annogenecovergae[each_gene][0] - exonBE[0]);
+                                TempDist.push_back((a<b)?a:b);
+                            }   
                             auto min_it = std::min_element(TempDist.begin(), TempDist.end());
-                            first_part = TempGene[std::distance(TempDist.begin(), min_it)];  
+                            first_part = TempGene[std::distance(TempDist.begin(), min_it)];
                         }
                     }
 
@@ -4014,32 +4083,28 @@ OutputInformation Write_Detection_Transcript2gtf_AllFiles(std::ofstream& Updated
                 }
 
                 FinalAnnotations.transcript2gene[itsname] = first_part;
-                {   
-                    if (first_part != "NA") {
-                        second_part = gtf_gene_std[first_part];
-                    } else {
-                        second_part = High_Strand[nameya];
-                    }
+                {
                     if (!itssj.empty()) {
                         std::unique_lock<std::mutex> lock(updatedGtfMutex);
-                        Updated_Files << chrname << '\t' << "novel_isoform" << '\t' << "transcript" << '\t' << BE[0] << '\t' << BE[1] << '\t' << "." << '\t' << second_part << '\t' << "." << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << itsname << "\";" << '\n';
-                        for (int i = 0; i < itssj.size()+1; i++){
+                        Updated_Files << chrname << '\t' << "novel_isoform" << '\t' << "transcript" << '\t' << BE[0] << '\t' << BE[1] << '\t' << "." << '\t' << High_Strand[nameya] << '\t' << "." << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << itsname << "\";" << '\n';
+                        for (auto i = 0; i < itssj.size()+1; i++) {
                             if (i == 0) {
-                                Updated_Files << chrname << '\t' << "novel_isoform" << '\t' << "exon" << '\t' << BE[0] << '\t' << itssj[i][0]-1 << '\t' << "." << '\t' << second_part << '\t' << "." << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << itsname << "\"; exon_number \"" << i << "\";" <<  '\n';
+                                Updated_Files << chrname << '\t' << "novel_isoform" << '\t' << "exon" << '\t' << BE[0] << '\t' << itssj[i][0]-1 << '\t' << "." << '\t' << High_Strand[nameya] << '\t' << "." << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << itsname << "\"; exon_number \"" << i << "\";" <<  '\n';
                             } else if (i == itssj.size()) {
-                                Updated_Files << chrname << '\t' << "novel_isoform" << '\t' << "exon" << '\t' << itssj[i-1][1]+1 << '\t' << BE[1] << '\t' << "." << '\t' << second_part << '\t' << "." << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << itsname << "\"; exon_number \"" << i << "\";" << '\n';
+                                Updated_Files << chrname << '\t' << "novel_isoform" << '\t' << "exon" << '\t' << itssj[i-1][1]+1 << '\t' << BE[1] << '\t' << "." << '\t' << High_Strand[nameya] << '\t' << "." << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << itsname << "\"; exon_number \"" << i << "\";" << '\n';
                             } else {
-                                Updated_Files << chrname << '\t' << "novel_isoform" << '\t' << "exon" << '\t' << itssj[i-1][1]+1 << '\t' << itssj[i][0]-1 << '\t' << "." << '\t' << second_part << '\t' << "." << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << itsname << "\"; exon_number \"" << i << "\";" << '\n';
+                                Updated_Files << chrname << '\t' << "novel_isoform" << '\t' << "exon" << '\t' << itssj[i-1][1]+1 << '\t' << itssj[i][0]-1 << '\t' << "." << '\t' << High_Strand[nameya] << '\t' << "." << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << itsname << "\"; exon_number \"" << i << "\";" << '\n';
                             }
                         }
                     }
                 }
-
+                
                 if (Trace.is_open()) {
                     const auto& read_list = HighClusters[nameya];
                     std::string buffer;
-                    buffer.reserve(read_list.size() * 80);  // 预分配，加速
+                    buffer.reserve(read_list.size() * 80);              
                     for (const auto& EachRead : read_list) {
+                        const std::string& file = groupreadfiles[EachRead];
                         buffer += EachRead;
                         buffer += '\t';
                         buffer += "novel\t";
@@ -4047,11 +4112,183 @@ OutputInformation Write_Detection_Transcript2gtf_AllFiles(std::ofstream& Updated
                         buffer += '\t';
                         buffer += first_part;
                         buffer += '\t';
-                        buffer += groupreadbarcodes[EachRead];
-                        buffer += '\t';
-                        buffer += groupreadfiles[EachRead];
+                        buffer += file;
                         buffer += '\n';
                     }
+                    {
+                        std::unique_lock<std::mutex> lock(traceMutex);
+                        Trace << buffer;
+                    }
+                }
+
+            }
+        }
+    }
+    return FinalAnnotations;
+}
+
+OutputInformation Write_Detection_Transcript2gtf_MultiFiles(std::ofstream& Updated_Files, std::ofstream& Trace,
+                                                DetectionResults& noderesults, DistanceInform& Disinform, 
+                                                std::unordered_map<std::string, std::vector<std::array<int,2>>>& groupannotations, 
+                                                std::unordered_map<std::string, std::vector<std::array<int,2>>>& Annoexon, 
+                                                std::unordered_map<std::size_t, std::array<int, 2>>& groupreadcoverage, 
+                                                std::unordered_map<std::string, std::array<int,2>>& groupallgene, 
+                                                std::unordered_map<std::string, std::array<int,2>>& Annogenecovergae, 
+                                                std::unordered_map<std::string, std::string>& GTF_Transcript_Strand, 
+                                                std::unordered_map<size_t, std::string>& High_Strand, 
+                                                std::string& chrname, std::string& group_size, 
+                                                std::map<size_t, std::vector<std::string>>& HighClusters,
+                                                int& FileNumber, std::unordered_map<std::string, std::string>& groupreadfiles,
+                                                Solvent& filesolvent,
+                                                std::unordered_map<std::string, std::vector<std::string>>& gtf_gene2tx){
+    OutputInformation FinalAnnotations;
+    std::string itsname;
+    std::vector<std::array<int,2>> itssj;
+    std::vector<std::array<int,2>> itsexon;
+    std::vector<std::string> TempGene;
+    std::string TempGeneName;
+    std::vector<int> TempDist;
+    int novel_count = 0;
+    std::size_t nameya;
+    std::array<int,2> BE;
+    std::string first_part;
+    std::string second_part;
+
+    for (int i = 0; i < FileNumber; i++) {
+        FinalAnnotations.File_TranscriptNumber[std::to_string(i)] = {};
+    }
+
+    if (Updated_Files.is_open()) {
+
+        for (const auto aaa:noderesults.TrueNodeSet) {
+            if (aaa < Disinform.Index2Anno.size()) {
+
+                itsname = Disinform.Index2Anno[aaa];
+                itssj = groupannotations[itsname];
+                itsexon = Annoexon[itsname];
+                FinalAnnotations.Transcript_Annotations[itsname].first = itssj;
+                FinalAnnotations.Transcript_Annotations[itsname].second = Disinform.Index2Count[aaa];
+
+                for (int i = 0; i < FileNumber; i++) {
+                    auto is1 = filesolvent.File_FSM[std::to_string(i)].find(itsname);
+                    if (is1 != filesolvent.File_FSM[std::to_string(i)].end()) {
+                        FinalAnnotations.File_TranscriptNumber[std::to_string(i)][itsname] = filesolvent.File_FSM[std::to_string(i)][itsname];
+                    } else {
+                        FinalAnnotations.File_TranscriptNumber[std::to_string(i)][itsname] = 0;
+                    }
+                }
+
+                size_t pos = itsname.find('|');
+                if (pos != std::string::npos) {
+                    // 根据 "|" 将字符串分割为两部分
+                    first_part = itsname.substr(0, pos);
+                    second_part = itsname.substr(pos + 1);
+                }
+                {
+                    if (!itsexon.empty()) {
+                        std::unique_lock<std::mutex> lock(updatedGtfMutex);
+                        Updated_Files << chrname << '\t' << "annotated_isoform" << '\t' << "transcript" << '\t' << itsexon[0][0] << '\t' << itsexon[itsexon.size()-1][1] << '\t' << "." << '\t' << GTF_Transcript_Strand[itsname] << '\t' << '.' << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << second_part << "\";" << '\n';
+                        for (auto i = 0; i < itsexon.size(); i++){
+                            Updated_Files << chrname << '\t' << "annotated_isoform" << '\t' << "exon" << '\t' << itsexon[i][0] << '\t' << itsexon[i][1] << '\t' << "." << '\t' << GTF_Transcript_Strand[itsname] << '\t' << '.' << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << second_part << "\"; exon_number \"" << i << "\";" << '\n';
+                        }
+                    }
+                }
+                FinalAnnotations.transcript2gene[itsname] = first_part;
+
+            } else {
+                novel_count = novel_count + 1;
+                if (chrname == "chrM") continue;
+                itsname = chrname + "-novel-" + group_size + "-" + std::to_string(aaa) + "-" + std::to_string(novel_count);
+                Disinform.Index2novelname[aaa] = itsname;
+                itssj = Disinform.Index2Unknown[aaa];
+                FinalAnnotations.Transcript_Annotations[itsname].first = itssj;
+                FinalAnnotations.Transcript_Annotations[itsname].second = Disinform.Index2Count[aaa];
+                nameya = Disinform.Index2hashname[aaa];
+                std::array<int,2> exonBE = groupreadcoverage[nameya];
+                BE[0] = itssj.front()[0];
+                BE[1] = itssj.back()[1];
+                
+                for (int i = 0; i < FileNumber; i++) {
+                    auto is1 = filesolvent.File_HighConClusters[std::to_string(i)].find(nameya);
+                    if (is1 != filesolvent.File_HighConClusters[std::to_string(i)].end()) {
+                        FinalAnnotations.File_TranscriptNumber[std::to_string(i)][itsname] = filesolvent.File_HighConClusters[std::to_string(i)][nameya].size();
+                    } else {
+                        FinalAnnotations.File_TranscriptNumber[std::to_string(i)][itsname] = 0;
+                    }
+                }
+                
+                TempGene.clear();
+                if (groupallgene.size() != 0) {
+                    TempGeneName = get_co_sj_gene(itssj, groupallgene, gtf_gene2tx, groupannotations);
+
+                    if (TempGeneName.size() != 0) {
+                        if (BE[0] > Annogenecovergae[TempGeneName][0] and BE[1] < Annogenecovergae[TempGeneName][1])  {
+                            first_part = TempGeneName;
+                        } else {
+                            first_part = "NA";
+                        }
+                    } else {
+                        for (const auto& every_gene:groupallgene) {
+                            if ( BE[0] > Annogenecovergae[every_gene.first][0] and BE[1] < Annogenecovergae[every_gene.first][1] ) {
+                                TempGene.push_back(every_gene.first);
+                            }
+                        }
+                        if (TempGene.size() == 0) {
+                            first_part = "NA";
+                        } else if (TempGene.size() == 1) {
+                            if ( BE[0] > Annogenecovergae[TempGene[0]][0] and BE[1] < Annogenecovergae[TempGene[0]][1] ) {
+                                first_part = TempGene[0];
+                            } else {
+                                first_part = "NA";
+                            }
+                        } else {
+                            TempDist.clear();
+                            for (const auto& each_gene:TempGene) {
+                                int a = abs(exonBE[1] - Annogenecovergae[each_gene][1]);
+                                int b = abs(Annogenecovergae[each_gene][0] - exonBE[0]);
+                                TempDist.push_back((a<b)?a:b);
+                            }   
+                            auto min_it = std::min_element(TempDist.begin(), TempDist.end());
+                            first_part = TempGene[std::distance(TempDist.begin(), min_it)];                           
+                        }
+                    }
+                } else {
+                    first_part = "NA";                
+                }
+
+                FinalAnnotations.transcript2gene[itsname] = first_part;
+                {
+                    if (!itssj.empty()) {
+                        std::unique_lock<std::mutex> lock(updatedGtfMutex);
+                        Updated_Files << chrname << '\t' << "novel_isoform" << '\t' << "transcript" << '\t' << BE[0] << '\t' << BE[1] << '\t' << "." << '\t' << High_Strand[nameya] << '\t' << "." << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << itsname << "\";" << '\n';
+                        for (auto i = 0; i < itssj.size()+1; i++){
+                            if (i == 0) {
+                                Updated_Files << chrname << '\t' << "novel_isoform" << '\t' << "exon" << '\t' << BE[0] << '\t' << itssj[i][0]-1 << '\t' << "." << '\t' << High_Strand[nameya] << '\t' << "." << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << itsname << "\"; exon_number \"" << i << "\";" <<  '\n';
+                            } else if (i == itssj.size()) {
+                                Updated_Files << chrname << '\t' << "novel_isoform" << '\t' << "exon" << '\t' << itssj[i-1][1]+1 << '\t' << BE[1] << '\t' << "." << '\t' << High_Strand[nameya] << '\t' << "." << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << itsname << "\"; exon_number \"" << i << "\";" << '\n';
+                            } else {
+                                Updated_Files << chrname << '\t' << "novel_isoform" << '\t' << "exon" << '\t' << itssj[i-1][1]+1 << '\t' << itssj[i][0]-1 << '\t' << "." << '\t' << High_Strand[nameya] << '\t' << "." << '\t' << "gene_id \"" << first_part << "\"; transcript_id \"" << itsname << "\"; exon_number \"" << i << "\";" << '\n';
+                            }
+                        }
+                    }
+                }
+                //输出追踪文件;
+                if (Trace.is_open()){
+                    const auto& read_list = HighClusters[nameya];
+                    std::string buffer;
+                    buffer.reserve(read_list.size() * 80);                
+                    for (const auto& EachRead : read_list) {
+                        const std::string& file = groupreadfiles[EachRead];
+                        buffer += EachRead;
+                        buffer += '\t';
+                        buffer += "novel\t";
+                        buffer += itsname;
+                        buffer += '\t';
+                        buffer += first_part;
+                        buffer += '\t';
+                        buffer += file;
+                        buffer += '\n';
+                    }              
                     {
                         std::unique_lock<std::mutex> lock(traceMutex);
                         Trace << buffer;
@@ -4064,158 +4301,27 @@ OutputInformation Write_Detection_Transcript2gtf_AllFiles(std::ofstream& Updated
 }
 
 
-void get_transcript_init (
-    std::unordered_map<std::string, std::vector<double>>& File_TranscriptNumber,
-    DetectionResults& noderesults, DistanceInform& Disinform, std::string& chrname, std::string& group_size, 
-    int& FileNumber, std::unordered_map<std::string, std::string>& groupreadfiles,
-    std::unordered_map<std::string, std::string>& groupreadbarcodes,
-    Solvent_sc& filesolvent, const std::set<std::string>& itBarSet, std::unordered_map<std::string,int>& transcript2ID) {
-    
-    std::string fileIndex = std::to_string(FileNumber);
-    int novel_count = 0;
-
-    for (const auto aaa:noderesults.TrueNodeSet) {
-        std::string itsname; 
-        const std::vector<std::string>* reads = nullptr;
-
-        if (aaa < Disinform.Index2Anno.size()) {
-            itsname = Disinform.Index2Anno[aaa];
-            auto it = filesolvent.File_FSM.find(itsname);
-            if (it != filesolvent.File_FSM.end()) reads = &it->second;
-        } else {
-            ++novel_count;
-            itsname = chrname + "-novel-" + group_size + "-" + std::to_string(aaa) + "-" + std::to_string(novel_count);
-            Disinform.Index2novelname[aaa] = itsname;
-
-            auto nameya = Disinform.Index2hashname[aaa];
-            auto it = filesolvent.File_HighConClusters.find(nameya);
-            if (it != filesolvent.File_HighConClusters.end()) reads = &it->second;
-        }
-
-        if (!reads || reads->empty()) continue;
-
-        for (const auto& eachRead : *reads) {
-            auto itBC = groupreadbarcodes.find(eachRead);
-            if (itBC == groupreadbarcodes.end()) continue;
-
-            const std::string& bc = itBC->second;
-            auto itOut = File_TranscriptNumber.find(bc);
-            if (itOut == File_TranscriptNumber.end()) continue;
-
-            auto itIndex = transcript2ID.find(itsname);
-            if (itIndex == transcript2ID.end()) continue;
-            itOut->second[itIndex->second] += 1.0;
-        }        
-    }
-}
-
-
-struct Barcode_sc {
-    std::unordered_map<std::string, std::map<std::string, int>> Barcode_FSM;
-    std::unordered_map<std::string, std::map<std::size_t, std::vector<std::string>>> Barcode_ISM;
-    std::unordered_map<std::string, std::map<std::size_t, std::vector<std::string>>> Barcode_HighConClusters;
-    std::unordered_map<std::string, std::map<std::size_t, std::vector<std::string>>> Barcode_LowConClusters;
-};
-
-Barcode_sc get_Barcode_FsmIsmHigh(std::map<std::string, std::vector<std::string>>& thisfilefsm,
-                            std::map<std::size_t, std::vector<std::string>>& thisfileism,
-                            std::map<std::size_t, std::vector<std::string>>& thisfileHC,
-                            std::map<std::size_t, std::vector<std::string>>& thisfileLC,
-                            std::unordered_map<std::string, std::string>& groupreadbarcodes) {
-    // 输出;
-    Barcode_sc barcodesc;
-    std::unordered_map<std::string, std::map<std::string, int>> barcodefsm;
-    std::unordered_map<std::string, std::map<std::size_t, std::vector<std::string>>> barcodeism;
-    std::unordered_map<std::string, std::map<std::size_t, std::vector<std::string>>> barcodehc;
-    std::unordered_map<std::string, std::map<std::size_t, std::vector<std::string>>> barcodelc;
-    
-    // FSM
-    for (std::map<std::string, std::vector<std::string>>::const_iterator it = thisfilefsm.begin(); it != thisfilefsm.end(); ++it) {
-        const std::string& FSMname = it->first;
-        const std::vector<std::string>& reads = it->second;
-        for (std::vector<std::string>::const_iterator r = reads.begin(); r != reads.end(); ++r) {
-            std::unordered_map<std::string, std::string>::const_iterator itb = groupreadbarcodes.find(*r);
-            if (itb == groupreadbarcodes.end()) continue;
-            const std::string& barcode = itb->second;
-            ++barcodefsm[barcode][FSMname];
-        }
-    }
-
-    // ISM
-    for (std::map<std::size_t, std::vector<std::string>>::const_iterator it = thisfileism.begin(); it != thisfileism.end(); ++it) {
-        std::size_t clusterId = it->first;
-        const std::vector<std::string>& reads = it->second;
-        for (std::vector<std::string>::const_iterator r = reads.begin(); r != reads.end(); ++r) {
-            std::unordered_map<std::string, std::string>::const_iterator itb = groupreadbarcodes.find(*r);
-            if (itb == groupreadbarcodes.end()) continue;
-            const std::string& barcode = itb->second;
-            barcodeism[barcode][clusterId].push_back(*r);
-        }
-    }
-
-    // HC
-    for (std::map<std::size_t, std::vector<std::string>>::const_iterator it = thisfileHC.begin(); it != thisfileHC.end(); ++it) {
-        std::size_t clusterId = it->first;
-        const std::vector<std::string>& reads = it->second;
-        for (std::vector<std::string>::const_iterator r = reads.begin(); r != reads.end(); ++r) {
-            std::unordered_map<std::string, std::string>::const_iterator itb = groupreadbarcodes.find(*r);
-            if (itb == groupreadbarcodes.end()) continue;
-            const std::string& barcode = itb->second;
-            barcodehc[barcode][clusterId].push_back(*r);
-        }
-    }
-
-    // LC
-    for (std::map<std::size_t, std::vector<std::string>>::const_iterator it = thisfileLC.begin(); it != thisfileLC.end(); ++it) {
-        std::size_t clusterId = it->first;
-        const std::vector<std::string>& reads = it->second;
-        for (std::vector<std::string>::const_iterator r = reads.begin(); r != reads.end(); ++r) {
-            std::unordered_map<std::string, std::string>::const_iterator itb = groupreadbarcodes.find(*r);
-            if (itb == groupreadbarcodes.end()) continue;
-            const std::string& barcode = itb->second;
-            barcodelc[barcode][clusterId].push_back(*r);
-        }
-    }
-
-    barcodesc.Barcode_FSM = barcodefsm;
-    barcodesc.Barcode_ISM = barcodeism;
-    barcodesc.Barcode_HighConClusters = barcodehc;
-    barcodesc.Barcode_LowConClusters = barcodelc;
-    return barcodesc;
-}
-
-
-
-
-struct FileBarcodeFalseNode
+struct FileFalseNode
 {
     std::set<int> ThisFlaseNode;
     std::unordered_map<int, std::vector<std::string>> FasleNode2Count;
 };
-
-void get_File_Barcode_False_node (std::set<int>& FalseNodeSet, 
-                            std::unordered_map<int, std::size_t>& Node2hashname, 
-                            std::unordered_map<std::string, std::map<std::size_t, std::vector<std::string>>>& barcodehc, 
-                            const std::string& Barcode, FileBarcodeFalseNode& ThisFile_FalseNumber) {
-    ThisFile_FalseNumber.ThisFlaseNode.clear();
-    ThisFile_FalseNumber.FasleNode2Count.clear();
-
-    std::map<size_t, std::vector<std::string>> this_file_HC;
-    auto it = barcodehc.find(Barcode);
-    if (it == barcodehc.end()) {
-        return;
-    } else {
-        this_file_HC = it->second;
-    }
+FileFalseNode get_File_False_node (std::set<int>& FalseNodeSet, 
+                          std::unordered_map<int, std::size_t>& Node2hashname, 
+                          std::map<std::string, std::map<size_t, std::vector<std::string>>>& File_HighClusters, 
+                          int & FileNNumber) {
+    //这个Barcode中所有错误的节点;
+    FileFalseNode ThisFile_FalseNumber;
+    std::map<size_t, std::vector<std::string>> this_file_HC = File_HighClusters[std::to_string(FileNNumber)];
     for (const auto& node:FalseNodeSet) {
-        const auto & node_name = Node2hashname[node];
-        auto which = this_file_HC.find(node_name);
+        //每个错误节点不一定在这个File的HighCluster中;
+        auto which = this_file_HC.find(Node2hashname[node]);
         if (which != this_file_HC.end()) {
             ThisFile_FalseNumber.ThisFlaseNode.insert(node);
-            ThisFile_FalseNumber.FasleNode2Count[node] = this_file_HC[node_name];
+            ThisFile_FalseNumber.FasleNode2Count[node] = this_file_HC[Node2hashname[node]];
         }
     }
-    return;
+    return ThisFile_FalseNumber;
 }
 
 
@@ -4223,10 +4329,13 @@ int whether_isoform_part_is_not(std::vector<std::array<int,2>> AnnoSJ, std::vect
     int ISM_Flag = 0;
     auto it1 = std::find(AnnoSJ.begin(), AnnoSJ.end(), ISMSJ[0]);
     if (it1 != AnnoSJ.end()){
+        //计算出it1的索引;
         int it1_index = it1 - AnnoSJ.begin();
         auto it2 = std::find(AnnoSJ.begin(), AnnoSJ.end(), ISMSJ[ISMSJ.size()-1]);
         if (it2 != AnnoSJ.end()){
+            //计算出it2的索引;
             int it2_index = it2 - AnnoSJ.begin();
+
             if (it2_index - it1_index == ISMSJ.size() - 1){
                 ISM_Flag = 1;
             }
@@ -4237,7 +4346,7 @@ int whether_isoform_part_is_not(std::vector<std::array<int,2>> AnnoSJ, std::vect
 
 std::string concatenateSet(const std::set<std::string>& stringSet) {
     if (stringSet.empty()) {
-        return "";
+        return ""; // 如果集合为空，返回空字符串
     }
     std::ostringstream oss;
     std::string oss_string;
@@ -4256,34 +4365,34 @@ struct IndicateFire
     std::vector<std::string> Order_Transcript_Name_Vector;
 };
 
-void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<std::string>>& groupISM, 
-                                            OutputInformation& FinallyAnnotations, 
-                                            std::set<int>& truenodeset,
-                                            std::set<int>& falsenodeset,
-                                            std::unordered_map<int, std::vector<std::string>>& faslenode2count, 
-                                            DistanceInform& Disinform, 
-                                            std::string& group_size, 
-                                            std::map<size_t, std::vector<std::string>>& HighClusters, 
-                                            std::unordered_map<std::string, std::vector<std::array<int,2>>>& groupreadsjs,
-                                            std::unordered_map<std::string, std::string>& groupreadfiles,
-                                            std::unordered_map<std::string, std::string>& groupreadbarcodes,
-                                            std::ofstream& Trace, IndicateFire& OutputResults) {
-    OutputResults.Indicate_Matrix.resize(0, 0);
-    OutputResults.Cluster_Number.resize(0);
 
+IndicateFire Quantification_initialization(std::map<std::size_t, std::vector<std::string>>& groupISM, 
+                                           OutputInformation& FinallyAnnotations, 
+                                           std::set<int>& truenodeset,
+                                           std::set<int>& falsenodeset, 
+                                           DistanceInform& Disinform, 
+                                           std::string& group_size, 
+                                           std::map<size_t, std::vector<std::string>>& HighClusters, 
+                                           std::unordered_map<std::string, std::vector<std::array<int,2>>>& groupreadsjs, 
+                                           std::unordered_map<std::string, std::string>& groupreadfiles,
+                                           std::ofstream& Trace,
+                                           std::string& chrname) {
+    IndicateFire OutputResults;
+    std::vector<std::string> Order_Transcript_Name;
     Eigen::MatrixXd known_ISM_matrix;
     std::vector<std::array<int,2>> AreadSJs;
     
-    int RowIndex = -1; int ColIndex = -1;
+    int RowIndex = -1;
+    int ColIndex = -1;
     int flag = 0;
 
-    const auto& Order_Transcript_Name = OutputResults.Order_Transcript_Name_Vector;
-    const int Transcript_Number = Order_Transcript_Name.size();
+    for (const auto& eachTransctipt:FinallyAnnotations.Transcript_Annotations){
+        Order_Transcript_Name.push_back(eachTransctipt.first);
+    }
 
-    Eigen::RowVectorXd EachClusterRowVector(Transcript_Number);
+    Eigen::RowVectorXd EachClusterRowVector(Order_Transcript_Name.size());
     Eigen::VectorXd known_ISM_cluster_numbers;
 
-    //ISM的追踪文件;
     std::vector<std::string> ism_gtf_name;
     std::set<std::string> first_part_set;
     std::set<std::string> second_part_set;
@@ -4293,42 +4402,47 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
     double max_ratio = 0;
     double this_ratio = 0;
 
-    if (!groupISM.empty()) {
+    if (groupISM.size() != 0) {
         RowIndex = -1;
         for (const auto& eachISM:groupISM) {
+            //对生成的每个行向量清空; 每个cluster的行向量;
             AreadSJs = groupreadsjs[eachISM.second[0]];
             EachClusterRowVector.setZero();
             ColIndex = -1;
             ism_gtf_name.clear();
             first_part_set.clear();
-            second_part_set.clear();  
+            second_part_set.clear();
+            ColIndexVec.clear();   
             max_ratio = 0;
-            this_ratio = 0;          
-
+            this_ratio = 0;
+            
             for (const auto& eachTransctipt:Order_Transcript_Name) {
                 ColIndex = ColIndex + 1;
                 if (AreadSJs.size() < FinallyAnnotations.Transcript_Annotations[eachTransctipt].first.size()){
                     if ((AreadSJs[0][0] >= FinallyAnnotations.Transcript_Annotations[eachTransctipt].first[0][0]) && (AreadSJs[AreadSJs.size()-1][1] <= FinallyAnnotations.Transcript_Annotations[eachTransctipt].first[(FinallyAnnotations.Transcript_Annotations[eachTransctipt].first.size()-1)][1])){
                         flag = whether_isoform_part_is_not(FinallyAnnotations.Transcript_Annotations[eachTransctipt].first, AreadSJs);
+                        
                         if (flag == 1) {
                             this_ratio = static_cast<double>(AreadSJs.size())/FinallyAnnotations.Transcript_Annotations[eachTransctipt].first.size();
-                            
+
                             if (max_ratio < this_ratio) {
                                 max_ratio = this_ratio;
-                            }                            
+                            }
+
                             EachClusterRowVector(ColIndex) = 1;
                             ism_gtf_name.push_back(eachTransctipt);
                             ColIndexVec.push_back(ColIndex);
+
                         } else {
                             EachClusterRowVector(ColIndex) = 0;
                         }
                     } else{
                         EachClusterRowVector(ColIndex) = 0;
                     }
-                } else {
+                } else{
                     EachClusterRowVector(ColIndex) = 0;
                 }
-            }
+            }             
 
             if (ColIndexVec.size() > 1) {
                 if (max_ratio >= 0.5) {
@@ -4343,11 +4457,12 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
                         }
                     }
                 }
-            } 
+            }            
+
             if (ism_gtf_name.size() != 0) {
 
                 RowIndex = RowIndex + 1;
-                known_ISM_matrix.conservativeResize(RowIndex+1, Transcript_Number);
+                known_ISM_matrix.conservativeResize(RowIndex+1, Order_Transcript_Name.size());
                 known_ISM_matrix.row(RowIndex) = EachClusterRowVector;
                 known_ISM_cluster_numbers.conservativeResize(RowIndex+1, 1);
                 known_ISM_cluster_numbers(RowIndex, 0) = eachISM.second.size();
@@ -4360,7 +4475,7 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
                     } else {
                         second_part_set.insert(EachTranscript);
                         const auto geneName = FinallyAnnotations.transcript2gene[EachTranscript];
-                        first_part_set.insert(geneName);                        
+                        first_part_set.insert(geneName);
                     }
                 }
 
@@ -4368,10 +4483,9 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
                 second_part = concatenateSet(second_part_set);
                 
                 if (Trace.is_open()) {
-                    const auto& reads = eachISM.second; 
                     std::string buffer;
-                    buffer.reserve(reads.size() * 80); 
-                    for (const auto& EachRead:reads) {
+                    buffer.reserve(eachISM.second.size() * 80);
+                    for (const auto& EachRead : eachISM.second) {
                         buffer += EachRead;
                         buffer += '\t';
                         buffer += "ISM\t";
@@ -4379,34 +4493,33 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
                         buffer += '\t';
                         buffer += first_part;
                         buffer += '\t';
-                        buffer += groupreadbarcodes.at(EachRead);
-                        buffer += '\t';
                         buffer += groupreadfiles.at(EachRead);
                         buffer += '\n';
-                    }
+                    }        
                     {
                         std::unique_lock<std::mutex> lock(traceMutex);
-                        Trace << buffer; 
+                        Trace << buffer;
                     }
                 }
-            } else {}
+            } else { }
         }
     }
 
     std::set<int> MergeFalseSet(falsenodeset.begin(), falsenodeset.end());
-    Eigen::MatrixXd False_novel_candidate_matrix(MergeFalseSet.size(), Transcript_Number);
+    Eigen::MatrixXd False_novel_candidate_matrix(MergeFalseSet.size(), Order_Transcript_Name.size());
+
     std::set<int> FalseNode_NeighborSet;
     std::set<int> FalseNode_TrueSet;
     std::string itsname;
-    Eigen::RowVectorXd FalseNode_RowVector(Transcript_Number);
+    Eigen::RowVectorXd FalseNode_RowVector(Order_Transcript_Name.size());
     RowIndex = -1;
     int countC = 0;
     
     if (MergeFalseSet.size() != 0) {
+
         std::set<int> MergedTrueSet(truenodeset.begin(), truenodeset.end());
         
-        for (const auto& FalseNode:MergeFalseSet) {
-   
+        for (const auto& FalseNode:MergeFalseSet) {     
             RowIndex = RowIndex + 1;        
             FalseNode_NeighborSet.clear();
             FalseNode_TrueSet.clear();            
@@ -4419,23 +4532,18 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
             ism_gtf_name.clear();
 
             if (FalseNode_TrueSet.size() != 0) {
+                const int Index2Anno_size = Disinform.Index2Anno.size();
                 for(const auto& EachTNode:FalseNode_TrueSet) {
-                    if (EachTNode < Disinform.Index2Anno.size()) {
+                    if (EachTNode < Index2Anno_size) {
                         itsname = Disinform.Index2Anno[EachTNode];
-                        auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
-                        if (it != Order_Transcript_Name.end()) {  
-                            auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
-                            FalseNode_RowVector[itwhere] = 1;
-                            ism_gtf_name.push_back(itsname);
-                        }
+                        auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
+                        FalseNode_RowVector[itwhere] = 1;
+                        ism_gtf_name.push_back(itsname);
                     } else {
                         itsname = Disinform.Index2novelname[EachTNode];
-                        auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
-                        if (it != Order_Transcript_Name.end()) {  
-                            auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
-                            FalseNode_RowVector[itwhere] = 1;
-                            ism_gtf_name.push_back(itsname);
-                        }
+                        auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
+                        FalseNode_RowVector[itwhere] = 1;
+                        ism_gtf_name.push_back(itsname);
                     }
                 }
                 False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
@@ -4443,28 +4551,23 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
             else
             {   
                 countC = 0;
+                const int Index2Anno_size = Disinform.Index2Anno.size();
                 for(const auto& neinode:FalseNode_NeighborSet) {
-                    if (Disinform.NodeDistanceSet[neinode].size() != 0){
-                        for (const auto& node:Disinform.NodeDistanceSet[neinode]){
-                            if (node < Disinform.Index2Anno.size()) {
+                    if (Disinform.NodeDistanceSet[neinode].size() != 0) {
+                        for (const auto& node:Disinform.NodeDistanceSet[neinode]) {
+                            if (node < Index2Anno_size) {
                                 itsname = Disinform.Index2Anno[node];
-                                auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
-                                if (it != Order_Transcript_Name.end()) {  
-                                    auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
-                                    FalseNode_RowVector[itwhere] = 1;
-                                    ism_gtf_name.push_back(itsname);
-                                    countC++;
-                                }
+                                auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
+                                FalseNode_RowVector[itwhere] = 1;
+                                ism_gtf_name.push_back(itsname);
+                                countC++;
                             } else {
                                 if (truenodeset.find(node) != truenodeset.end()) {
                                     itsname = Disinform.Index2novelname[node];
-                                    auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
-                                    if (it != Order_Transcript_Name.end()) {  
-                                        auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
-                                        FalseNode_RowVector[itwhere] = 1;
-                                        ism_gtf_name.push_back(itsname);
-                                        countC++;
-                                    } 
+                                    auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
+                                    FalseNode_RowVector[itwhere] = 1;
+                                    ism_gtf_name.push_back(itsname);
+                                    countC++;
                                 }
                             }
                         }
@@ -4494,6 +4597,305 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
             first_part_set.clear();
             second_part_set.clear();
 
+            for (const auto& EachTranscript:ism_gtf_name) {
+                size_t pos = EachTranscript.find('|');
+                if (pos != std::string::npos) {
+                    first_part_set.insert(EachTranscript.substr(0, pos));
+                    second_part_set.insert(EachTranscript.substr(pos + 1));
+                } else {
+                    first_part_set.insert(FinallyAnnotations.transcript2gene[EachTranscript]);
+                    second_part_set.insert(EachTranscript);
+                }
+            }
+            first_part = concatenateSet(first_part_set);
+            second_part = concatenateSet(second_part_set);
+            
+            if (Trace.is_open()) {
+                const auto& reads = HighClusters[Disinform.Index2hashname[FalseNode]];
+                std::string buffer;
+                buffer.reserve(reads.size() * 80); 
+                for(const auto& EachRead : reads) {
+                    buffer += EachRead;
+                    buffer += '\t';
+                    buffer += "simNovel\t";
+                    buffer += second_part;
+                    buffer += '\t';
+                    buffer += first_part;
+                    buffer += '\t';
+                    buffer += groupreadfiles.at(EachRead);
+                    buffer += '\n';
+                }                
+                {
+                    std::unique_lock<std::mutex> lock(traceMutex);
+                    Trace << buffer;
+                }    
+            }            
+        }
+    }
+
+    Eigen::VectorXd False_novel_candidate_cluster_numbers(MergeFalseSet.size());
+    RowIndex = -1;
+    for (const auto& FalseNode:MergeFalseSet){
+        RowIndex = RowIndex + 1;
+        False_novel_candidate_cluster_numbers[RowIndex] = Disinform.Index2Count[FalseNode];
+    }
+
+    if (known_ISM_matrix.rows() != 0){
+        if (False_novel_candidate_matrix.rows() != 0){
+            OutputResults.Indicate_Matrix.resize(known_ISM_matrix.rows()+False_novel_candidate_matrix.rows(), known_ISM_matrix.cols());
+            OutputResults.Cluster_Number.resize(known_ISM_matrix.rows()+False_novel_candidate_matrix.rows(), known_ISM_cluster_numbers.cols());
+            OutputResults.Indicate_Matrix << known_ISM_matrix,
+                                             False_novel_candidate_matrix;
+            OutputResults.Cluster_Number << known_ISM_cluster_numbers,
+                                            False_novel_candidate_cluster_numbers;
+        }
+        else
+        {
+            OutputResults.Indicate_Matrix = known_ISM_matrix;
+            OutputResults.Cluster_Number = known_ISM_cluster_numbers;
+        }
+    } else{
+        if (False_novel_candidate_matrix.rows() != 0){
+            OutputResults.Indicate_Matrix = False_novel_candidate_matrix;
+            OutputResults.Cluster_Number = False_novel_candidate_cluster_numbers;
+        }
+    }
+    OutputResults.Order_Transcript_Name_Vector = Order_Transcript_Name;
+    return OutputResults;
+}
+
+
+
+IndicateFire Quantification_initialization_MultiFiles (std::map<std::size_t, std::vector<std::string>>& groupISM, 
+                                                OutputInformation& FinallyAnnotations, 
+                                                std::set<int>& truenodeset,
+                                                std::set<int>& falsenodeset,
+                                                std::unordered_map<int, std::vector<std::string>>& faslenode2count, 
+                                                DistanceInform& Disinform, 
+                                                std::string& group_size, 
+                                                std::map<size_t, std::vector<std::string>>& HighClusters, 
+                                                std::unordered_map<std::string, std::vector<std::array<int,2>>>& groupreadsjs,
+                                                std::unordered_map<std::string, std::string>& groupreadfiles,
+                                                std::ofstream& Trace) {
+    IndicateFire OutputResults;
+    std::vector<std::string> Order_Transcript_Name;
+    Order_Transcript_Name.reserve(FinallyAnnotations.Transcript_Annotations.size());
+    for (const auto& kv : FinallyAnnotations.Transcript_Annotations) {
+        Order_Transcript_Name.push_back(kv.first);
+    }
+
+    Eigen::MatrixXd known_ISM_matrix;
+    std::vector<std::array<int,2>> AreadSJs;
+    
+    int RowIndex = -1;
+    int ColIndex = -1;
+    int flag = 0;
+
+    Eigen::RowVectorXd EachClusterRowVector(Order_Transcript_Name.size());
+    Eigen::VectorXd known_ISM_cluster_numbers;
+
+    std::vector<std::string> ism_gtf_name;
+    std::set<std::string> first_part_set;
+    std::set<std::string> second_part_set;
+    std::string first_part;
+    std::string second_part;
+    std::vector<int> ColIndexVec;
+    double max_ratio = 0;
+    double this_ratio = 0;
+
+    if (groupISM.size() != 0){
+        RowIndex = -1;
+        for (const auto& eachISM:groupISM){
+            AreadSJs = groupreadsjs[eachISM.second[0]];
+            EachClusterRowVector.setZero();
+            ColIndex = -1;
+            ism_gtf_name.clear();
+            first_part_set.clear();
+            second_part_set.clear();            
+            ColIndexVec.clear();   
+            max_ratio = 0;
+            this_ratio = 0;
+            for (const auto& eachTransctipt:Order_Transcript_Name){
+                ColIndex = ColIndex + 1;
+                if (AreadSJs.size() < FinallyAnnotations.Transcript_Annotations[eachTransctipt].first.size()){
+                    if ((AreadSJs[0][0] >= FinallyAnnotations.Transcript_Annotations[eachTransctipt].first[0][0]) && (AreadSJs[AreadSJs.size()-1][1] <= FinallyAnnotations.Transcript_Annotations[eachTransctipt].first[(FinallyAnnotations.Transcript_Annotations[eachTransctipt].first.size()-1)][1])){
+                        flag = whether_isoform_part_is_not(FinallyAnnotations.Transcript_Annotations[eachTransctipt].first, AreadSJs);
+                        if (flag == 1){
+                            this_ratio = static_cast<double>(AreadSJs.size())/FinallyAnnotations.Transcript_Annotations[eachTransctipt].first.size();
+                            if (max_ratio < this_ratio) {
+                                max_ratio = this_ratio;
+                            }
+                            EachClusterRowVector(ColIndex) = 1;
+                            ism_gtf_name.push_back(eachTransctipt);
+                            ColIndexVec.push_back(ColIndex);
+                        } else {
+                            EachClusterRowVector(ColIndex) = 0;
+                        }
+                    } else{
+                        EachClusterRowVector(ColIndex) = 0;
+                    }
+                } else {
+                    EachClusterRowVector(ColIndex) = 0;
+                }
+            }
+            if (ColIndexVec.size() > 1) {
+                if (max_ratio >= 0.5) {
+                    for (const auto& ColIndex:ColIndexVec) {
+                        if (ColIndex >= 0 && ColIndex < static_cast<int>(Order_Transcript_Name.size())) {
+                            std::string TransName = Order_Transcript_Name[ColIndex];
+                            this_ratio = static_cast<double>(AreadSJs.size())/FinallyAnnotations.Transcript_Annotations[TransName].first.size();
+                            if (this_ratio < max_ratio) {
+                                EachClusterRowVector[ColIndex] = 0;
+                                ism_gtf_name.erase(std::remove(ism_gtf_name.begin(), ism_gtf_name.end(), TransName), ism_gtf_name.end());
+                            }
+                        }
+                    }
+                }
+            } 
+            if (ism_gtf_name.size() != 0) {
+                RowIndex = RowIndex + 1;
+                known_ISM_matrix.conservativeResize(RowIndex+1, Order_Transcript_Name.size());
+                known_ISM_matrix.row(RowIndex) = EachClusterRowVector;
+                known_ISM_cluster_numbers.conservativeResize(RowIndex+1, 1);
+                known_ISM_cluster_numbers(RowIndex, 0) = eachISM.second.size();
+
+                for (const auto& EachTranscript:ism_gtf_name){
+                    size_t pos = EachTranscript.find('|');
+                    if (pos != std::string::npos) {
+                        first_part_set.insert(EachTranscript.substr(0, pos));
+                        second_part_set.insert(EachTranscript.substr(pos + 1));
+                    } else {
+                        second_part_set.insert(EachTranscript);
+                        const auto geneName = FinallyAnnotations.transcript2gene[EachTranscript];
+                        first_part_set.insert(geneName);                        
+                    }
+                }
+                first_part = concatenateSet(first_part_set);
+                second_part = concatenateSet(second_part_set);
+                if (Trace.is_open()) {
+                    const auto& reads = eachISM.second; 
+                    std::string buffer;
+                    buffer.reserve(reads.size() * 80); 
+                    for (const auto& EachRead : reads) {
+                        buffer += EachRead;
+                        buffer += '\t';
+                        buffer += "ISM\t";
+                        buffer += second_part;
+                        buffer += '\t';
+                        buffer += first_part;
+                        buffer += '\t';
+                        buffer += groupreadfiles.at(EachRead);
+                        buffer += '\n';
+                    }     
+                    {
+                        std::unique_lock<std::mutex> lock(traceMutex);
+                        Trace << buffer;                        
+                    }              
+                }
+            } 
+        }
+    }
+    std::set<int> MergeFalseSet(falsenodeset.begin(), falsenodeset.end());
+    Eigen::MatrixXd False_novel_candidate_matrix(MergeFalseSet.size(), Order_Transcript_Name.size());
+    std::set<int> FalseNode_NeighborSet;
+    std::set<int> FalseNode_TrueSet;
+    std::string itsname;
+    std::string subStr;
+    Eigen::RowVectorXd FalseNode_RowVector(Order_Transcript_Name.size());
+    RowIndex = -1;
+    int countC = 0;
+    
+    if (MergeFalseSet.size() != 0) {
+
+        std::set<int> MergedTrueSet(truenodeset.begin(), truenodeset.end());
+        for (const auto& FalseNode:MergeFalseSet){    
+            RowIndex = RowIndex + 1;        
+            FalseNode_NeighborSet.clear();
+            FalseNode_TrueSet.clear();            
+            FalseNode_NeighborSet = Disinform.NodeDistanceSet[FalseNode];
+
+            std::set_intersection(MergedTrueSet.begin(), MergedTrueSet.end(), FalseNode_NeighborSet.begin(), FalseNode_NeighborSet.end(),
+            std::inserter(FalseNode_TrueSet, FalseNode_TrueSet.begin()));
+            FalseNode_RowVector.setZero();
+            ism_gtf_name.clear();
+
+            if (FalseNode_TrueSet.size() != 0) {
+                
+                for (const auto& EachTNode:FalseNode_TrueSet) {
+                    if (EachTNode < Disinform.Index2Anno.size()) {
+                        itsname = Disinform.Index2Anno[EachTNode];
+                        auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
+                        if (it != Order_Transcript_Name.end()) {  
+                            auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
+                            FalseNode_RowVector[itwhere] = 1;
+                            ism_gtf_name.push_back(itsname);
+                        } 
+
+                    } else{
+                        itsname = Disinform.Index2novelname[EachTNode];
+                        auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
+                        if (it != Order_Transcript_Name.end()) {  
+                            auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
+                            FalseNode_RowVector[itwhere] = 1;
+                            ism_gtf_name.push_back(itsname);
+                        }
+                    }
+                }
+                False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
+            } 
+            else
+            {   
+                countC = 0;
+                for(const auto& neinode:FalseNode_NeighborSet){
+                    if (Disinform.NodeDistanceSet[neinode].size() != 0){
+                        for (const auto& node:Disinform.NodeDistanceSet[neinode]){
+                            if (node < Disinform.Index2Anno.size()) {
+                                itsname = Disinform.Index2Anno[node];
+                                auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
+                                if (it != Order_Transcript_Name.end()) {  
+                                    auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
+                                    FalseNode_RowVector[itwhere] = 1;
+                                    ism_gtf_name.push_back(itsname);
+                                    countC++;
+                                }
+                            } else {
+                                if (truenodeset.find(node) != truenodeset.end()) {
+                                    itsname = Disinform.Index2novelname[node];
+                                    auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
+                                    if (it != Order_Transcript_Name.end()) {  
+                                        auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
+                                        FalseNode_RowVector[itwhere] = 1;
+                                        ism_gtf_name.push_back(itsname);
+                                        countC++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (countC != 0){
+                    False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
+                } else {
+
+                    std::vector<int> houX = {};
+                    int distance = 0;
+                    for (const auto& isofrorm:Order_Transcript_Name){
+                        distance = IntervalMerge(FinallyAnnotations.Transcript_Annotations[isofrorm].first, Disinform.Index2Unknown[FalseNode]) - IntervalIntersection(FinallyAnnotations.Transcript_Annotations[isofrorm].first, Disinform.Index2Unknown[FalseNode]);
+                        houX.push_back(distance);
+                    }
+
+                    auto min_it = std::min_element(houX.begin(), houX.end());
+                    int min_index = std::distance(houX.begin(), min_it);
+                    if (min_index >= 0 && min_index < static_cast<int>(Order_Transcript_Name.size())) {
+                        FalseNode_RowVector[min_index] = 1;
+                        False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
+                        ism_gtf_name.push_back(Order_Transcript_Name[min_index]);
+                    }
+                }
+            }
+            first_part_set.clear();
+            second_part_set.clear();
+
             for (const auto& EachTranscript:ism_gtf_name){
                 size_t pos = EachTranscript.find('|');
                 if (pos != std::string::npos) {
@@ -4506,12 +4908,11 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
             }
             first_part = concatenateSet(first_part_set);
             second_part = concatenateSet(second_part_set);
-
             if (Trace.is_open()) {
                 const auto& reads = HighClusters[Disinform.Index2hashname[FalseNode]];
                 std::string buffer;
                 buffer.reserve(reads.size() * 80);      
-                for (const auto& EachRead:reads) {
+                for (const auto& EachRead : reads) {
                     buffer += EachRead;
                     buffer += '\t';
                     buffer += "simnovel\t";
@@ -4519,11 +4920,9 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
                     buffer += '\t';
                     buffer += first_part;
                     buffer += '\t';
-                    buffer += groupreadbarcodes.at(EachRead);
-                    buffer += '\t';
                     buffer += groupreadfiles.at(EachRead);
                     buffer += '\n';
-                }
+                }          
                 {
                     std::unique_lock<std::mutex> lock(traceMutex);
                     Trace << buffer;
@@ -4531,7 +4930,7 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
             }            
         }
     }
-
+ 
     Eigen::VectorXd False_novel_candidate_cluster_numbers(MergeFalseSet.size());
     RowIndex = -1;
     for (const auto& FalseNode:MergeFalseSet){
@@ -4553,36 +4952,38 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
             OutputResults.Indicate_Matrix = known_ISM_matrix;
             OutputResults.Cluster_Number = known_ISM_cluster_numbers;
         }
-    } else {
+    } else{
         if (False_novel_candidate_matrix.rows() != 0){
             OutputResults.Indicate_Matrix = False_novel_candidate_matrix;
             OutputResults.Cluster_Number = False_novel_candidate_cluster_numbers;
         }
     }
-    return;
-}
+    OutputResults.Order_Transcript_Name_Vector = Order_Transcript_Name;
+    return OutputResults;
+} 
 
 
-void EM_Alg_Barcodes(std::unordered_map<std::string, std::vector<double>>& filetranscriptnumber, 
-                        IndicateFire& Indicate_Number, std::unordered_map<std::string, std::string>& tx2ge,
-                        const std::string& Barcode, std::unordered_map<std::string, std::unordered_map<std::string, double>>& filekgenenumber,
-                        std::unordered_map<std::string,int>& transcript2ID) {
+
+void EM_Alg(OutputInformation& FinallyAnnotations,
+            IndicateFire& Indicate_Number,
+            int& rc_threshold,
+            std::string& CHR) {
     
-    std::vector<double> Order_Transcript_Number(Indicate_Number.Order_Transcript_Name_Vector.size(), 0.0);
-    auto& current_transcript_map = filetranscriptnumber[Barcode]; 
-    int index = 0;
+    std::vector<double> Order_Transcript_Number; Order_Transcript_Number.reserve(Indicate_Number.Order_Transcript_Name_Vector.size());
 
     for (const auto& eachIso:Indicate_Number.Order_Transcript_Name_Vector) {
-        auto it = transcript2ID.find(eachIso);
-        if ( it != transcript2ID.end()) {
-            Order_Transcript_Number[index] = current_transcript_map[it->second];
+        if (FinallyAnnotations.Transcript_Annotations.find(eachIso) != FinallyAnnotations.Transcript_Annotations.end()) {
+            Order_Transcript_Number.push_back(FinallyAnnotations.Transcript_Annotations[eachIso].second);
+        } else {
+            Order_Transcript_Number.push_back(0);
         }
-        index++;
     }
 
     Eigen::VectorXd Order_Transcript_Vector = Eigen::Map<Eigen::VectorXd>(Order_Transcript_Number.data(), Order_Transcript_Number.size());
-
-    if (Indicate_Number.Indicate_Matrix.rows() != 0 && Indicate_Number.Indicate_Matrix.cols() != 0) {
+    Order_Transcript_Number.clear();
+    
+    if (Indicate_Number.Indicate_Matrix.rows() != 0 && Indicate_Number.Indicate_Matrix.cols() != 0){
+        std::string its_name;
         Eigen::VectorXd P_Col_init0 = Eigen::VectorXd::Constant(
             Indicate_Number.Order_Transcript_Name_Vector.size(),
             1.0 / Indicate_Number.Order_Transcript_Name_Vector.size() 
@@ -4593,7 +4994,6 @@ void EM_Alg_Barcodes(std::unordered_map<std::string, std::vector<double>>& filet
         Eigen::MatrixXd AnnoN;
         int CountCyc = 1; 
         double sum_abs_diff;
-
         do {
             Z = Indicate_Number.Indicate_Matrix.array().rowwise() * P_Col_init0.transpose().array();
             Z.array().colwise() /= (Indicate_Number.Indicate_Matrix * P_Col_init0).array();
@@ -4604,445 +5004,558 @@ void EM_Alg_Barcodes(std::unordered_map<std::string, std::vector<double>>& filet
             P_Col_init0 = P1;
             CountCyc = CountCyc + 1;
         } while ((sum_abs_diff > 5e-2) and (CountCyc < 10));
-
-        std::string its_name; double em_count;
-        
-        for (int i = 0; i < AnnoN.rows(); i++){
-            its_name = Indicate_Number.Order_Transcript_Name_Vector[i];
-            em_count = AnnoN(i, 0);
-            if (em_count > 0.0) {
-                auto it = transcript2ID.find(its_name);
-                if (it != transcript2ID.end()) current_transcript_map[it->second] += em_count;
-            }
-        }
-    }
-
-    std::string geneName; std::string second_part;
-    filekgenenumber[Barcode] = {};
-    auto& thisGeneBarcode = filekgenenumber[Barcode];
-
-    for (const auto& eachAnno:transcript2ID) {
-        size_t pos = eachAnno.first.find('|');
-        if (pos != std::string::npos) {
-            second_part = eachAnno.first.substr(pos + 1);
-        } else {
-            second_part = eachAnno.first;
-        }
-        geneName = tx2ge[eachAnno.first];
-        if (geneName != "NA") {
-            auto it = thisGeneBarcode.find(geneName);
-            if (it != thisGeneBarcode.end()) {
-                it->second = it->second + current_transcript_map[eachAnno.second];
-            } else {
-                thisGeneBarcode[geneName] = current_transcript_map[eachAnno.second];
-            }
-        }
-    } 
-}   
-
-
-void write_transcript_file(std::unordered_map<std::string, std::vector<double>>& filetranscriptnumber,
-                            OutputInformation& FinallyAnnotations, const std::set<std::string>& barcodeset, int& filenumber,
-                            std::vector<std::unique_ptr<std::ofstream>>& AllIsoformFilePath,
-                            std::vector<std::mutex>& AllIsoformMutexes, int& rc_threshold,
-                            std::unordered_map<std::string, std::vector<std::string>>& me_transcript_se_reads,
-                            std::unordered_map<std::string, std::string>& GroupReadBarcodes,
-                            std::unordered_map<std::string, std::string>& GroupReadFiles,
-                            std::ofstream& Updated_Files, std::string& chrname,
-                            std::unordered_map<std::string, std::vector<std::array<int,2>>>& rawgtf_isoform,
-                            std::unordered_map<std::string, std::string>& rawgtf_strand,
-                            std::unordered_map<std::string,int>& transcript2ID) {
     
-    std::string FILENUMBER = std::to_string(filenumber);
-    std::unordered_map<std::string, std::unordered_map<std::string, double>> transcriptbarcodenumber;
-
-    if (FinallyAnnotations.Transcript_Annotations.size() > 0 or me_transcript_se_reads.size() > 0) {
-        for (const auto& eachAnno : FinallyAnnotations.Transcript_Annotations) {
-            transcriptbarcodenumber[eachAnno.first];
-        }
-
-        for (const auto& barcode_pair : filetranscriptnumber) {
-            const std::string& barcode = barcode_pair.first;
-            const auto& barcodeCount = barcode_pair.second;
-            
-            for (const auto& tx_pair : transcript2ID) {
-                const std::string& tx_name = tx_pair.first;
-                double count = barcodeCount[tx_pair.second];
-                transcriptbarcodenumber[tx_name][barcode] = count; 
-            }
-        }
-
-        std::ostringstream gtf_buffer; 
-        bool has_gtf_content = false;
-        
-        for (const auto& eachAnno:me_transcript_se_reads) {
-            const std::string AnnoName = eachAnno.first;
-            const auto& reads = eachAnno.second;
-            auto it_tx = transcriptbarcodenumber.find(AnnoName);
-
-            if (it_tx != transcriptbarcodenumber.end()) {
-                for (const auto& eachRead:reads) {
-                    if (GroupReadFiles[eachRead] == FILENUMBER) {
-                        std::string BARCODE = GroupReadBarcodes[eachRead];
-                        it_tx->second[BARCODE] += 1.0;
-                    }
-                }
-            } else {
-                size_t pos = AnnoName.find('|');
-                std::string first_part, second_part;
-                if (pos != std::string::npos) {
-                    first_part = AnnoName.substr(0, pos);
-                    second_part = AnnoName.substr(pos + 1);
-                }
-                if (Updated_Files.is_open()) {
-                    has_gtf_content = true;
-                    std::vector<std::array<int,2>>& thisVec = rawgtf_isoform[AnnoName];
-                    const std::string& strand = rawgtf_strand[AnnoName];
-                    gtf_buffer << chrname << "\tannotated_isoform\ttranscript\t" 
-                            << thisVec[0][0] << "\t" << thisVec.back()[1] << "\t.\t" 
-                            << strand << "\t.\tgene_id \"" << first_part 
-                            << "\"; transcript_id \"" << second_part << "\";\n";                    
-                    for (size_t i = 0; i < thisVec.size(); i++) {
-                        gtf_buffer << chrname << "\tannotated_isoform\texon\t" 
-                                << thisVec[i][0] << "\t" << thisVec[i][1] << "\t.\t" 
-                                << strand << "\t.\tgene_id \"" << first_part 
-                                << "\"; transcript_id \"" << second_part 
-                                << "\"; exon_number \"" << i << "\";\n";
-                    }                    
-                }
-
-                auto& current_counts = transcriptbarcodenumber[AnnoName]; 
-                for (const auto& eachRead : reads) {
-                    if (GroupReadFiles[eachRead] == FILENUMBER) {
-                        std::string BARCODE = GroupReadBarcodes[eachRead];
-                        current_counts[BARCODE] += 1.0;
-                    }
-                }       
-            }
-        }
-
-        if (has_gtf_content && Updated_Files.is_open()) {
-            std::unique_lock<std::mutex> lock(updatedGtfMutex);
-            Updated_Files << gtf_buffer.str();
-        }
-
-        if (!transcriptbarcodenumber.empty()) {
-            std::ostringstream main_file_buffer;
-            main_file_buffer.str().reserve(transcriptbarcodenumber.size() * 1024); 
-
-            std::string transcript_name, gene_name;
-            for (const auto& eachAnno:transcriptbarcodenumber) {
-                const std::string& full_name = eachAnno.first;
-                const auto& counts_map = eachAnno.second;
-
-                size_t pos = full_name.find('|');
-                if (pos != std::string::npos) {
-                    transcript_name = full_name.substr(pos + 1);
-                    gene_name = full_name.substr(0, pos);
-                } else {
-                    transcript_name = full_name;
-                    gene_name = "NA";
-                }
-
-                main_file_buffer << transcript_name << '\t' << gene_name;
-                for (const auto& eachBar : barcodeset) {
-                    double val = 0.0;
-                    auto it_val = counts_map.find(eachBar);
-                    if (it_val != counts_map.end()) {
-                        val = it_val->second;
-                    }
-                    int64_t output_val;
-                    if (val < rc_threshold) {
-                        output_val = 0;
-                    } else {
-                        output_val = static_cast<int64_t>(std::round(val));
-                    }
-                    main_file_buffer << '\t' << output_val;
-                }
-                main_file_buffer << '\n';
-            }
-            {
-                std::unique_lock<std::mutex> lock(AllIsoformMutexes[filenumber]);
-                *(AllIsoformFilePath[filenumber]) << main_file_buffer.str();
-            }
+        for (int i = 0; i < AnnoN.rows(); i++) {
+            its_name = Indicate_Number.Order_Transcript_Name_Vector[i];
+            FinallyAnnotations.Transcript_Annotations[its_name].second = FinallyAnnotations.Transcript_Annotations[its_name].second + AnnoN(i,0);
         }
     }
 }
 
 
-void write_gene_file(std::unordered_map<std::string, std::unordered_map<std::string, double>>& filegenenumber,
-                    std::unordered_map<std::string, std::vector<std::string>>& segenenumber,
-                    std::unordered_map<std::string, std::string>& read2barcode,
-                    const std::set<std::string>& barcodeset, int& filenumber,
-                    std::vector<std::unique_ptr<std::ofstream>>& AllGeneFilePath,
-                    std::vector<std::mutex>& AllGeneMutexes, int& rc_threshold) {
 
-    std::vector<std::string> barcode_list(barcodeset.begin(), barcodeset.end());
-    std::unordered_map<std::string, int> barcode2idx;
-    barcode2idx.reserve(barcode_list.size());
-    for (int i = 0; i < barcode_list.size(); i++) {
-        barcode2idx[barcode_list[i]] = i;
-    }
-    const int B = barcode_list.size();
+void EM_Alg_MultiFiles(OutputInformation& FinallyAnnotations,
+                       IndicateFire& Indicate_Number,
+                       int& FileNumber)
+{
+    const std::string files = std::to_string(FileNumber);
+    std::vector<double> Order_Transcript_Number; Order_Transcript_Number.reserve(Indicate_Number.Order_Transcript_Name_Vector.size());
+    auto& filesTranscript = FinallyAnnotations.File_TranscriptNumber[files];
 
-    std::unordered_map<std::string, std::vector<int>> SE_gene_counts;
-    SE_gene_counts.reserve(segenenumber.size());
-    for (auto& kv : segenenumber) {
-        const std::string& gene = kv.first;
-        std::vector<int> counts(B, 0);
-        for (const std::string& read : kv.second) {
-            auto it = read2barcode.find(read);
-            if (it != read2barcode.end()) {
-                int bi = barcode2idx[it->second];
-                counts[bi]++;
-            }
+    for (const auto& eachIso:Indicate_Number.Order_Transcript_Name_Vector) {
+        auto it = filesTranscript.find(eachIso);
+        if (it != filesTranscript.end()) {
+            Order_Transcript_Number.push_back(it->second);
+        } else {
+            Order_Transcript_Number.push_back(0);
         }
-        SE_gene_counts[gene] = std::move(counts);
+    }    
+
+    Eigen::VectorXd Order_Transcript_Vector = Eigen::Map<Eigen::VectorXd>(Order_Transcript_Number.data(), Order_Transcript_Number.size());
+    Order_Transcript_Number.clear();
+    
+    if (Indicate_Number.Indicate_Matrix.rows() != 0 && Indicate_Number.Indicate_Matrix.cols() != 0){
+        std::string its_name;
+        Eigen::VectorXd P_Col_init0 = Eigen::VectorXd::Constant(
+            Indicate_Number.Order_Transcript_Name_Vector.size(),
+            1.0 / Indicate_Number.Order_Transcript_Name_Vector.size() 
+        );
+
+        Eigen::MatrixXd Z(Indicate_Number.Indicate_Matrix.rows(), Indicate_Number.Indicate_Matrix.cols());
+        Eigen::VectorXd P1(P_Col_init0.size());
+        Eigen::MatrixXd AnnoN;
+        int CountCyc = 1; 
+        double sum_abs_diff;
+        do {
+            Z = Indicate_Number.Indicate_Matrix.array().rowwise() * P_Col_init0.transpose().array();
+            Z.array().colwise() /= (Indicate_Number.Indicate_Matrix * P_Col_init0).array();
+            AnnoN = ((Indicate_Number.Cluster_Number.transpose()) * Z).transpose().reshaped(Indicate_Number.Indicate_Matrix.cols(),1);
+            P1 = AnnoN + Order_Transcript_Vector;
+            P1 = P1 / P1.sum();
+            sum_abs_diff = (P1 - P_Col_init0).cwiseAbs().sum();
+            P_Col_init0 = P1;
+            CountCyc = CountCyc + 1;
+        } while ((sum_abs_diff > 5e-2) and (CountCyc < 10));
+    
+        for (int i = 0; i < AnnoN.rows(); i++) {
+            its_name = Indicate_Number.Order_Transcript_Name_Vector[i];
+            auto it = filesTranscript.find(its_name);
+            if (it != filesTranscript.end()) {
+                it->second = it->second + AnnoN(i,0);
+            }
+        }    
+    }
+}
+
+
+void get_filter_Low(std::unordered_map<std::size_t, std::vector<std::string>>& LowClusters, 
+                    OutputInformation& FinallyAnnotations,
+                    std::unordered_map<std::string, std::vector<std::array<int,2>>>& tx2sj,
+                    std::unordered_map<std::string, double>& AllFileGeneCounts, std::unordered_map<std::string, std::vector<std::string>>& gene2tx,
+                    std::ofstream& isoformCountPath, int& rc_threshold, SE_belong2_genetranscript& groupSEREADS,
+                    std::ofstream& Updated_Files, std::unordered_map<std::string, std::vector<std::array<int,2>>>& rawgtf_isoform,
+                    std::string& chrname, std::unordered_map<std::string, std::string>& rawgtf_strand, 
+                    std::ofstream& Trace, std::unordered_map<std::string, std::string>& groupreadfiles) {
+
+    auto& annoMap = FinallyAnnotations.Transcript_Annotations;
+    auto& transcript2gene = FinallyAnnotations.transcript2gene;
+
+    std::string geneName;
+    // std::vector<std::array<int,2>> ThisSj;
+    // std::vector<std::array<int,2>> AnnoSj;
+    // std::vector<std::string> TempTx;
+    // std::string TxTxName;
+
+    // for (const auto& EachLow:LowClusters) {
+    //     auto it_tx = tx2sj.find(EachLow.second[0]);
+    //     if (it_tx == tx2sj.end()) continue;
+    //     const auto& ThisSjRef = it_tx->second;
+
+    //     ThisSj = tx2sj[EachLow.second[0]];
+    //     TempTx.clear();
+
+    //     for (auto& EachAnno:annoMap) {
+    //         // novel的才判定;
+    //         const std::string& annoName = EachAnno.first;
+    //         if (annoName.find('|') != std::string::npos) continue;
+    //         const auto& AnnoSjRef = EachAnno.second.first;
+    //         int Sect = IntervalIntersection(ThisSjRef, AnnoSjRef);
+    //         if (Sect <= 0) continue;
+    //         int Distance = IntervalMerge(ThisSjRef, AnnoSjRef) - Sect - findNonOverlappingIntervals(ThisSjRef, AnnoSjRef);
+    //         if (Distance < 60 && Distance > 0) {
+    //             TempTx.push_back(annoName);
+    //         }
+    //     }
+    //     // 每个cluster循环一圈;
+    //     if (TempTx.empty()) continue;
+    //     const size_t clusterSize = EachLow.second.size();
+    //     double TempCount = 0.0;
+
+    //     std::string buffer;
+    //     buffer.reserve(EachLow.second.size() * 80);
+    //     if (TempTx.size() == 1) {
+    //         auto& anno = annoMap[TempTx[0]];
+    //         anno.second += clusterSize;
+    //         geneName = transcript2gene[TempTx[0]];
+    //         for (const auto& eachR:EachLow.second) {
+    //             buffer += eachR;
+    //             buffer += '\t';
+    //             buffer += "simnovel\t";
+    //             buffer += TempTx[0];
+    //             buffer += '\t';
+    //             buffer += geneName;
+    //             buffer += '\t';
+    //             buffer += groupreadfiles.at(eachR);
+    //             buffer += '\n';
+    //         } 
+    //         {
+    //             std::unique_lock<std::mutex> lock(traceMutex);
+    //             Trace << buffer;
+    //         }
+    //     } else {
+    //         for (const auto& TxTx:TempTx) {
+    //             auto it = annoMap.find(TxTx);
+    //             if (it != annoMap.end() && it->second.second > TempCount) {
+    //                 TxTxName = TxTx;
+    //                 TempCount = it->second.second;
+    //             }
+    //         }
+    //         if (TempCount > 0) {
+    //             auto& anno = annoMap[TxTxName];
+    //             anno.second += clusterSize;
+    //             geneName = transcript2gene[TxTxName];
+    //             for (const auto& eachR:EachLow.second) {
+    //                 buffer += eachR;
+    //                 buffer += '\t';
+    //                 buffer += "simnovel\t";
+    //                 buffer += TempTx[0];
+    //                 buffer += '\t';
+    //                 buffer += geneName;
+    //                 buffer += '\t';
+    //                 buffer += groupreadfiles.at(eachR);
+    //                 buffer += '\n';
+    //             } 
+    //             {
+    //                 std::unique_lock<std::mutex> lock(traceMutex);
+    //                 Trace << buffer;
+    //             }
+    //         }
+    //     }
+    // }  
+
+    for (const auto& eachAnno:annoMap) {
+        const std::string& name = eachAnno.first;
+        geneName = transcript2gene[name];
+        double countVal = eachAnno.second.second;
+        if (geneName != "NA") { AllFileGeneCounts[geneName] += countVal; }
     }
 
-    std::unordered_set<std::string> geneSet;
-    if (!filegenenumber.empty()) {
-        const auto& firstInner = filegenenumber.begin()->second;
-        for (auto& g : firstInner) geneSet.insert(g.first);
-    }
-    for (auto& kv : SE_gene_counts) geneSet.insert(kv.first);
 
-    std::unordered_map<std::string, std::vector<double>> matrix;
-    matrix.reserve(geneSet.size());
-    for (const std::string& gene : geneSet) {
-        std::vector<double> counts(B, 0);
 
-        if (!filegenenumber.empty()) {
-            for (auto& bar : barcodeset) {
-                auto it = filegenenumber[bar].find(gene);
-                if (it != filegenenumber[bar].end()) {
-                    counts[barcode2idx[bar]] = it->second;
+    // 还有那些单exon reads归类于多exon isoform;
+    const auto& seReads = groupSEREADS.Transcript_with_SE_reads;
+    const bool updateOpen = Updated_Files.is_open();
+
+    for (const auto& eachAnno:seReads) {
+        auto it = annoMap.find(eachAnno.first);
+        if (it != annoMap.end()) {
+            // 已经有这种转录本;
+            it->second.second += eachAnno.second.size();
+        } else {
+            // 如果没有这个转录本, 还要输入到gtf中;
+            size_t pos = eachAnno.first.find('|');
+            std::string first_part, second_part;
+            if (pos != std::string::npos) {
+                first_part = eachAnno.first.substr(0, pos);
+                second_part = eachAnno.first.substr(pos + 1);
+            } 
+            if (updateOpen) {
+                std::ostringstream localBuffer;
+                const auto& thisVec = rawgtf_isoform[eachAnno.first];
+                const auto& strand = rawgtf_strand[eachAnno.first];
+                localBuffer << chrname << '\t' << "annotated_isoform" << '\t' << "transcript" << '\t'
+                            << thisVec.front()[0] << '\t' << thisVec.back()[1]
+                            << '\t' << "." << '\t' << strand
+                            << '\t' << '.' << '\t' << "gene_id \"" << first_part 
+                            << "\"; transcript_id \"" << second_part << "\";" << '\n';
+                for (size_t i = 0; i < thisVec.size(); i++) {
+                    localBuffer << chrname << '\t' << "annotated_isoform" << '\t' << "exon" << '\t'
+                                << thisVec[i][0] << '\t' << thisVec[i][1] << '\t' << "." << '\t'
+                                << strand << '\t' << '.' << '\t'
+                                << "gene_id \"" << first_part << "\"; transcript_id \"" << second_part 
+                                << "\"; exon_number \"" << i << "\";" << '\n';                    
                 }
-            }
+                {
+                    std::unique_lock<std::mutex> lock(updatedGtfMutex);
+                    Updated_Files << localBuffer.str();
+                }
+            }        
+            annoMap[eachAnno.first] = {};
+            annoMap[eachAnno.first].first = {};
+            annoMap[eachAnno.first].second = eachAnno.second.size();
+            transcript2gene[eachAnno.first] = first_part;
         }
-        auto it = SE_gene_counts.find(gene);
-        if (it != SE_gene_counts.end()) {
-            for (int i = 0; i < B; i++) {
-                counts[i] += it->second[i];
-            }
-        }
-        matrix[gene] = std::move(counts);
     }
 
-    std::string out;
-    out.reserve(geneSet.size() * (20 + B * 6));
-    for (auto& kv : matrix) {
-        out += kv.first;
-        const std::vector<double>& vec = kv.second;
-        for (double c : vec) {
-            // if (c < rc_threshold) c = 0;
-            // out += '\t';
-            // out += std::to_string((int)(c+0.5)); // ★取整了, 结果加和有点区别;
-            double value_to_output = (c < rc_threshold) ? 0.0 : c;
-            int64_t rounded = static_cast<int64_t>(std::round(value_to_output));
-            out += '\t';
-            out += std::to_string(rounded);
+    // 输出定量文件;
+    if (isoformCountPath.is_open()) {
+        std::ostringstream buffer;
+        for (const auto& eachAnno:annoMap) {
+            const std::string& name = eachAnno.first;
+            size_t pos = name.find('|');
+            std::string second_part = (pos != std::string::npos) ? name.substr(pos + 1) : name;
+            geneName = transcript2gene[name];
+            double countVal = eachAnno.second.second;
+            if (countVal >= rc_threshold) {
+                buffer << second_part << '\t' << geneName << '\t' << countVal << '\n';
+            }
         }
-        out += '\n';
+        {
+            std::unique_lock<std::mutex> lock(isoformCountMutex);
+            isoformCountPath << buffer.str();
+        }
+    }
+}
+
+
+void get_allfile_genecounts(OutputInformation& FinallyAnnotations, 
+                        int& AllFileNumber, std::ofstream& isoformCountPath, int& rc_threshold,
+                        std::unordered_map<int, std::unordered_map<std::string, double>>& AllFileGeneCounts,
+                        SE_belong2_genetranscript& groupSEREADS,
+                        std::ofstream& Updated_Files, std::unordered_map<std::string, std::vector<std::array<int,2>>>& rawgtf_isoform,
+                        std::string& chrname, std::unordered_map<std::string, std::string>& rawgtf_strand, 
+                        std::unordered_map<std::string, std::string>& groupreadfiles) {
+    
+    for (int i = 0; i < AllFileNumber; i++) {
+        AllFileGeneCounts[i].reserve(1000);
+    }
+
+    auto& FTN = FinallyAnnotations.File_TranscriptNumber;
+    auto& T2G = FinallyAnnotations.transcript2gene;
+
+    for (const auto& eachAnno:FTN["0"]) {
+        const std::string& transcript = eachAnno.first;
+        size_t pos = transcript.find('|');
+        std::string second_part = (pos != std::string::npos ? transcript.substr(pos + 1) : transcript);
+        const std::string& geneName = T2G.at(transcript);
+
+        if (geneName != "NA") {
+            for (int i = 0; i < AllFileNumber; i++) {
+                auto& inner = FTN[std::to_string(i)];
+                double v = inner.count(transcript) ? inner.at(transcript) : 0;
+                AllFileGeneCounts[i][geneName] += v;
+            }
+        } 
+    }
+
+    // 还有那些单exon reads归类于多exon isoform;
+    const auto& seReads = groupSEREADS.Transcript_with_SE_reads;
+    const bool updateOpen = Updated_Files.is_open();
+    auto& annoMap = FTN["0"];
+    std::string read_in_file = "0";
+
+    for (const auto& eachAnno:seReads) {
+        auto it = annoMap.find(eachAnno.first);
+        if (it != annoMap.end()) {
+            // 已经有这种转录本;
+            for (const auto& eachRead: eachAnno.second) {
+                read_in_file = groupreadfiles[eachRead];
+                FTN[read_in_file][eachAnno.first]++;
+            }
+
+        } else {
+            // 如果没有这个转录本, 还要输入到gtf中;
+            size_t pos = eachAnno.first.find('|');
+            std::string first_part, second_part;
+            if (pos != std::string::npos) {
+                first_part = eachAnno.first.substr(0, pos);
+                second_part = eachAnno.first.substr(pos + 1);
+            } 
+            if (updateOpen) {
+                std::ostringstream localBuffer;
+                const auto& thisVec = rawgtf_isoform[eachAnno.first];
+                const auto& strand = rawgtf_strand[eachAnno.first];
+                localBuffer << chrname << '\t' << "annotated_isoform" << '\t' << "transcript" << '\t'
+                            << thisVec.front()[0] << '\t' << thisVec.back()[1]
+                            << '\t' << "." << '\t' << strand
+                            << '\t' << '.' << '\t' << "gene_id \"" << first_part 
+                            << "\"; transcript_id \"" << second_part << "\";" << '\n';
+                for (size_t i = 0; i < thisVec.size(); i++) {
+                    localBuffer << chrname << '\t' << "annotated_isoform" << '\t' << "exon" << '\t'
+                                << thisVec[i][0] << '\t' << thisVec[i][1] << '\t' << "." << '\t'
+                                << strand << '\t' << '.' << '\t'
+                                << "gene_id \"" << first_part << "\"; transcript_id \"" << second_part 
+                                << "\"; exon_number \"" << i << "\";" << '\n';                    
+                }
+                {
+                    std::unique_lock<std::mutex> lock(updatedGtfMutex);
+                    Updated_Files << localBuffer.str();
+                }
+            }        
+            for (const auto& eachRead: eachAnno.second) {
+                read_in_file = groupreadfiles[eachRead];
+                FTN[read_in_file][eachAnno.first]++;
+            }
+            T2G[eachAnno.first] = first_part;
+        }
+    }
+
+    std::string fileBuffer;
+    fileBuffer.reserve(5000000);
+
+    for (const auto& eachAnno:FTN["0"]) {
+        const std::string& transcript = eachAnno.first;
+        size_t pos = transcript.find('|');
+        std::string second_part = (pos != std::string::npos ? transcript.substr(pos + 1) : transcript);
+        const std::string& geneName = T2G.at(transcript);
+
+        fileBuffer.append(second_part);
+        fileBuffer.push_back('\t');
+        fileBuffer.append(geneName);
+
+        for (int i = 0; i < AllFileNumber; i++) {
+            auto& inner = FTN[std::to_string(i)];
+            double v = inner.count(transcript) ? inner.at(transcript) : 0;
+            if (v < rc_threshold) v = 0;
+            fileBuffer.push_back('\t');
+            fileBuffer.append(std::to_string(v));
+        }
+        fileBuffer.push_back('\n');           
     }
     {
-        std::unique_lock<std::mutex> lock(AllGeneMutexes[filenumber]);
-        *(AllGeneFilePath[filenumber]) << out;
+        std::unique_lock<std::mutex> lock(isoformCountMutex);
+        isoformCountPath << fileBuffer;
     }
-
 }
 
 
-void DetectQuant(GroupAnnotation& groupanno, SpliceChainClass& splicechainclass, GroupInformation& groupinform, 
-                const int& groupdistance, unGTF& gtfexon, GTFsj& gtfsjs,
-                std::ofstream& gtfFilePath, std::ofstream& traceFilePath, int& FileNo,
-                std::map<std::string, std::set<std::string>>& AllFile_BarcodeSet,
-                std::vector<std::unique_ptr<std::ofstream>>& IsoformFilePath,
-                std::vector<std::mutex>& IsoformMutexes,
-                std::vector<std::unique_ptr<std::ofstream>>& GeneFilePath,
-                std::vector<std::mutex>& GeneMutexes,
-                int& RC_threshold, SE_belong2_genetranscript& groupSeReads) {
-   
+
+std::unordered_map<int, std::unordered_map<std::string, double>> DetectQuant(GroupAnnotation& groupanno, 
+                 SpliceChainClass& splicechainclass, 
+                 GroupInformation& groupinform, 
+                 const int& groupdistance,
+                 unGTF& gtfexon, GTFsj& gtfsjs,
+                 std::ofstream& gtfFilePath, std::ofstream& isoformFilePath,
+                 std::ofstream& traceFilePath, int& FileNo,
+                 std::unordered_map<std::string, std::array<int,2>>& singleexonanno, int& RC_threshold,
+                 SE_belong2_genetranscript& groupSeReads, std::string& CHRCHR) {
+
     std::string chrchr = groupinform.chrName;
     std::string groupnumber = groupinform.GroupIndex;
-    DistanceInform DMatrix_GraphNode = get_distance_matrix(groupanno.group_me_transcripts, 
+    DistanceInform DMatrix_GraphNode = get_distance_matrix(groupanno.group_me_SJs, 
                                                            splicechainclass.HighConClusters, 
                                                            groupinform.GroupReadSjs, 
                                                            groupdistance, splicechainclass.FSM);
 
-    std::vector<std::vector<int>> CliquesVector = Find_Maximal_Cliques(DMatrix_GraphNode.NodeDistanceSet);
+    std::unordered_map<int, std::unordered_map<std::string, double>> AllFile_GeneCounts; AllFile_GeneCounts.reserve(FileNo);
 
-    DetectionResults NodeResults = Transcript_Detection(CliquesVector, DMatrix_GraphNode.Index2Anno, 
-                                                        DMatrix_GraphNode.Index2Unknown, DMatrix_GraphNode.Index2Count);
-    CliquesVector.clear();
+    if (DMatrix_GraphNode.NodeDistanceSet.size() != 0) { 
+        std::vector<std::vector<int>> CliquesVector = Find_Maximal_Cliques(DMatrix_GraphNode.NodeDistanceSet);
 
-    OutputInformation Finally_Annotations = Write_Detection_Transcript2gtf_AllFiles(gtfFilePath, traceFilePath, 
-                                            NodeResults, DMatrix_GraphNode, 
-                                            gtfsjs.mSJs[chrchr], gtfexon.GTF_transcript[chrchr], 
-                                            splicechainclass.ClusterCoverage, groupanno.group_genes, 
-                                            gtfexon.GTF_gene[chrchr], 
-                                            gtfexon.GTF_transcript_strand[chrchr], 
-                                            splicechainclass.HighStrand, chrchr, groupnumber, 
-                                            splicechainclass.HighConClusters,
-                                            groupinform.GroupReadFiles,
-                                            groupinform.GroupReadBarcodes,
-                                            AllFile_BarcodeSet,
-                                            gtfexon.GTF_gene2transcript[chrchr],
-                                            gtfexon.GTF_gene_strand[chrchr]); 
-    splicechainclass.HighStrand.clear();
+        DetectionResults NodeResults = Transcript_Detection(CliquesVector, 
+                                                            DMatrix_GraphNode.Index2Anno, 
+                                                            DMatrix_GraphNode.Index2Unknown, 
+                                                            DMatrix_GraphNode.Index2Count);
+        CliquesVector.clear();
 
-    const size_t T = Finally_Annotations.Transcript_Annotations.size();
-    std::unordered_map<std::string, int> transcript_to_id; transcript_to_id.reserve(T);
-    int idx = 0;
-    for(const auto& t : Finally_Annotations.Transcript_Annotations) {
-        transcript_to_id[t.first] = idx++;
+        if (FileNo > 1) {
+            Solvent SpliceChainSolvent = get_Solvent_FsmIsmHigh(splicechainclass, FileNo, groupinform);
+   
+            OutputInformation Finally_Annotations = Write_Detection_Transcript2gtf_MultiFiles(gtfFilePath, traceFilePath, 
+                                                    NodeResults, DMatrix_GraphNode, 
+                                                    gtfsjs.mSJs[chrchr], gtfexon.GTF_transcript[chrchr], 
+                                                    splicechainclass.ClusterCoverage, groupanno.group_genes, 
+                                                    gtfexon.GTF_gene[chrchr], 
+                                                    gtfexon.GTF_transcript_strand[chrchr], 
+                                                    splicechainclass.HighStrand, chrchr, groupnumber, 
+                                                    splicechainclass.HighConClusters,
+                                                    FileNo, groupinform.GroupReadFiles,
+                                                    SpliceChainSolvent,
+                                                    gtfexon.GTF_gene2transcript[chrchr]); 
+
+            for (int k = 0; k < FileNo; k++) {
+                FileFalseNode This_File_False_Node = get_File_False_node(NodeResults.FalseNodeSet,
+                                                                        DMatrix_GraphNode.Index2hashname,
+                                                                        SpliceChainSolvent.File_HighConClusters,
+                                                                        k);
+
+                IndicateFire InitFirefly = Quantification_initialization_MultiFiles(SpliceChainSolvent.File_ISM[std::to_string(k)], 
+                                                            Finally_Annotations, NodeResults.TrueNodeSet,
+                                                            This_File_False_Node.ThisFlaseNode, 
+                                                            This_File_False_Node.FasleNode2Count,
+                                                            DMatrix_GraphNode, groupnumber, 
+                                                            SpliceChainSolvent.File_HighConClusters[std::to_string(k)], 
+                                                            groupinform.GroupReadSjs, 
+                                                            groupinform.GroupReadFiles,
+                                                            traceFilePath); 
+                EM_Alg_MultiFiles(Finally_Annotations, InitFirefly, k);              
+            }
+             
+            get_allfile_genecounts(Finally_Annotations, FileNo, isoformFilePath, RC_threshold, AllFile_GeneCounts, groupSeReads,
+                                   gtfFilePath, gtfexon.GTF_transcript[chrchr], chrchr, gtfexon.GTF_transcript_strand[chrchr], 
+                                   groupinform.GroupReadFiles);
+            return AllFile_GeneCounts; 
+
+        } else {
+            AllFile_GeneCounts[0] = {};
+
+            OutputInformation Finally_Annotations = Write_Detection_Transcript2gtf(gtfFilePath, traceFilePath, 
+                                                    NodeResults, DMatrix_GraphNode, 
+                                                    gtfsjs.mSJs[chrchr], gtfexon.GTF_transcript[chrchr], 
+                                                    splicechainclass.ClusterCoverage, groupanno.group_genes, 
+                                                    gtfexon.GTF_gene[chrchr], 
+                                                    gtfexon.GTF_transcript_strand[chrchr], 
+                                                    splicechainclass.HighStrand, chrchr, groupnumber, 
+                                                    splicechainclass.HighConClusters,
+                                                    groupinform.GroupReadFiles,
+                                                    gtfexon.GTF_gene2transcript[chrchr]);
+
+            IndicateFire InitFirefly = Quantification_initialization(splicechainclass.ISM, 
+                                                        Finally_Annotations, NodeResults.TrueNodeSet,
+                                                        NodeResults.FalseNodeSet, 
+                                                        DMatrix_GraphNode, groupnumber, 
+                                                        splicechainclass.HighConClusters, 
+                                                        groupinform.GroupReadSjs,
+                                                        groupinform.GroupReadFiles, 
+                                                        traceFilePath,
+                                                        groupinform.chrName);
+            EM_Alg(Finally_Annotations, InitFirefly, RC_threshold, CHRCHR);
+
+            // Low的跟Novel的能差多少;
+            get_filter_Low(splicechainclass.LowConClusters, Finally_Annotations, groupinform.GroupReadSjs, 
+                            AllFile_GeneCounts[0], gtfexon.GTF_gene2transcript[chrchr],
+                            isoformFilePath, RC_threshold, groupSeReads, gtfFilePath, gtfexon.GTF_transcript[chrchr],
+                            chrchr, gtfexon.GTF_transcript_strand[chrchr], traceFilePath, groupinform.GroupReadFiles);
+        
+            splicechainclass.LowConClusters.clear();
+            return AllFile_GeneCounts;
+        }
+    } else {
+        return AllFile_GeneCounts;
     }
+}
 
-    if (FileNo > 1) {
 
-        std::unordered_map<std::string, std::vector<double>> File_k_TranscriptNumber;
-        std::unordered_map<std::string, std::unordered_map<std::string, double>> File_K_GeneNumber;
-        FileBarcodeFalseNode This_File_False_Node; This_File_False_Node.FasleNode2Count.reserve(20);
-        IndicateFire InitFirefly; InitFirefly.Order_Transcript_Name_Vector.reserve(T);
-        for(const auto& t : Finally_Annotations.Transcript_Annotations) {
-            InitFirefly.Order_Transcript_Name_Vector.push_back(t.first);
+void write_gene_counts(std::unordered_map<int, std::unordered_map<std::string, double>>& FileSingleExonGeneNumber,
+                    std::unordered_map<int, std::unordered_map<std::string, double>>& FileMultiExonGeneNumber,
+                    std::ofstream& geneFilePath, int& FileNo) {
+    if (!geneFilePath.is_open()) return;
+    std::string buffer;
+
+    // ======== Case 1: 只有一个文件 ========
+    if (FileNo == 1) {
+        auto& single0 = FileSingleExonGeneNumber[0];
+        const auto& multi0 = FileMultiExonGeneNumber[0];
+
+        // 融合多 exon → 单 exon
+        if (!multi0.empty()) {
+            if (!single0.empty()) {
+                for (auto& kv : single0) {
+                    auto it = multi0.find(kv.first);
+                    if (it != multi0.end())
+                        kv.second += it->second;
+                }
+            } else {
+                // single 为空 → 用 multi
+                for (const auto& kv : multi0)
+                    single0[kv.first] = kv.second;
+            }
         }
 
-        for (int k = 0; k < FileNo; k++) {
-            File_k_TranscriptNumber.clear(); File_K_GeneNumber.clear();
-            const std::string FileStringK = std::to_string(k);
-            const auto& ALLBarcode = AllFile_BarcodeSet[FileStringK];
-            File_k_TranscriptNumber.reserve(ALLBarcode.size());
-            for (const auto& bc : ALLBarcode) {
-                File_k_TranscriptNumber.emplace(bc, std::vector<double>(T, 0.0));
-            }         
+        // 输出 single0
+        for (const auto& kv : FileSingleExonGeneNumber[0]) {
+            if (kv.second > 0) {
+                buffer.append(kv.first);
+                buffer.push_back('\t');
+                buffer.append(std::to_string(kv.second));
+                buffer.push_back('\n');
+            }
+        }
+        std::unique_lock<std::mutex> lock(geneCountMutex);
+        geneFilePath << buffer;
+        return;
+    }
 
-            if (!Finally_Annotations.Transcript_Annotations.empty()) {
-                Solvent_sc SpliceChainSolvent = get_Solvent_FsmIsmHigh(splicechainclass, k, groupinform);
-                get_transcript_init(File_k_TranscriptNumber, NodeResults, DMatrix_GraphNode, chrchr, groupnumber, k, 
-                                    groupinform.GroupReadFiles, groupinform.GroupReadBarcodes,
-                                    SpliceChainSolvent, ALLBarcode, transcript_to_id);
-                
-                Barcode_sc ThisFileBarcodeSpliceChain = get_Barcode_FsmIsmHigh(SpliceChainSolvent.File_FSM,
-                                                                    SpliceChainSolvent.File_ISM,
-                                                                    SpliceChainSolvent.File_HighConClusters,
-                                                                    SpliceChainSolvent.File_LowConClusters,
-                                                                    groupinform.GroupReadBarcodes);
-
-                for (const auto& ThisBarcode:ALLBarcode) {
-                    get_File_Barcode_False_node(NodeResults.FalseNodeSet,
-                                                DMatrix_GraphNode.Index2hashname,
-                                                ThisFileBarcodeSpliceChain.Barcode_HighConClusters,
-                                                ThisBarcode, This_File_False_Node);
-
-                    Quantification_initialization_Barcodes(ThisFileBarcodeSpliceChain.Barcode_ISM[ThisBarcode], 
-                                                Finally_Annotations, NodeResults.TrueNodeSet,
-                                                This_File_False_Node.ThisFlaseNode, 
-                                                This_File_False_Node.FasleNode2Count,
-                                                DMatrix_GraphNode, groupnumber, 
-                                                ThisFileBarcodeSpliceChain.Barcode_HighConClusters[ThisBarcode], 
-                                                groupinform.GroupReadSjs, 
-                                                groupinform.GroupReadFiles,
-                                                groupinform.GroupReadBarcodes,
-                                                traceFilePath, InitFirefly);
-
-                    EM_Alg_Barcodes(File_k_TranscriptNumber, InitFirefly, Finally_Annotations.transcript2gene, ThisBarcode, File_K_GeneNumber, transcript_to_id);                                       
+    // ======== Case 2: 多文件 ========
+    const auto& multi0 = FileMultiExonGeneNumber[0];
+    auto& single0 = FileSingleExonGeneNumber[0];
+    if (!multi0.empty()) {
+        if (!single0.empty()) {
+            for (const auto& kv : multi0) {
+                const std::string& gene = kv.first;
+                // double multiCount = kv.second;
+                if (single0.find(gene) != single0.end()) {
+                    for (int i = 0; i < FileNo; ++i) {
+                        FileSingleExonGeneNumber[i][gene] += FileMultiExonGeneNumber[i][gene];
+                    }
                 }
             }
-            write_transcript_file(File_k_TranscriptNumber, Finally_Annotations, ALLBarcode, 
-                                k, IsoformFilePath, IsoformMutexes, RC_threshold,
-                                groupSeReads.Transcript_with_SE_reads, groupinform.GroupReadBarcodes, groupinform.GroupReadFiles,
-                                gtfFilePath, chrchr, gtfexon.GTF_transcript[chrchr], gtfexon.GTF_transcript_strand[chrchr], transcript_to_id);
-
-            write_gene_file(File_K_GeneNumber, groupSeReads.file_SE_reads_gene_number[k], 
-                            groupinform.GroupReadBarcodes, ALLBarcode, k, 
-                            GeneFilePath, GeneMutexes, RC_threshold);
-        }
-
-    } else {
-        int k = 0;
-        const auto& ALLBarcode = AllFile_BarcodeSet["0"];
-        std::unordered_map<std::string, std::vector<double>> File_k_TranscriptNumber;
-        File_k_TranscriptNumber.reserve(ALLBarcode.size());
-        for (const auto& bc : ALLBarcode) {
-            File_k_TranscriptNumber.emplace(bc, std::vector<double>(T, 0.0));
-        }
-        std::unordered_map<std::string, std::unordered_map<std::string, double>> File_K_GeneNumber;
-
-        if (!Finally_Annotations.Transcript_Annotations.empty()) {
-            Solvent_sc SpliceChainSolvent = get_Solvent_FsmIsmHigh(splicechainclass, k, groupinform);
-            get_transcript_init(File_k_TranscriptNumber, NodeResults, DMatrix_GraphNode, chrchr, groupnumber, k, 
-                                groupinform.GroupReadFiles, groupinform.GroupReadBarcodes,
-                                SpliceChainSolvent, ALLBarcode, transcript_to_id);
-
-            Barcode_sc ThisFileBarcodeSpliceChain = get_Barcode_FsmIsmHigh(SpliceChainSolvent.File_FSM,
-                                                                SpliceChainSolvent.File_ISM,
-                                                                SpliceChainSolvent.File_HighConClusters,
-                                                                SpliceChainSolvent.File_LowConClusters,
-                                                                groupinform.GroupReadBarcodes);
-
-            FileBarcodeFalseNode This_File_False_Node; This_File_False_Node.FasleNode2Count.reserve(20);
-            IndicateFire InitFirefly; InitFirefly.Order_Transcript_Name_Vector.reserve(T);
-            for(const auto& t : Finally_Annotations.Transcript_Annotations) {
-                InitFirefly.Order_Transcript_Name_Vector.push_back(t.first);
-            }
-            
-            for (const auto& ThisBarcode:ALLBarcode) {
-                get_File_Barcode_False_node(NodeResults.FalseNodeSet,
-                                            DMatrix_GraphNode.Index2hashname,
-                                            ThisFileBarcodeSpliceChain.Barcode_HighConClusters,
-                                            ThisBarcode, This_File_False_Node); 
-
-                Quantification_initialization_Barcodes(ThisFileBarcodeSpliceChain.Barcode_ISM[ThisBarcode], 
-                                                        Finally_Annotations, NodeResults.TrueNodeSet,
-                                                        This_File_False_Node.ThisFlaseNode, 
-                                                        This_File_False_Node.FasleNode2Count,
-                                                        DMatrix_GraphNode, groupnumber, 
-                                                        ThisFileBarcodeSpliceChain.Barcode_HighConClusters[ThisBarcode], 
-                                                        groupinform.GroupReadSjs, 
-                                                        groupinform.GroupReadFiles,
-                                                        groupinform.GroupReadBarcodes,
-                                                        traceFilePath, InitFirefly);
-
-                EM_Alg_Barcodes(File_k_TranscriptNumber, InitFirefly, Finally_Annotations.transcript2gene, ThisBarcode, File_K_GeneNumber, transcript_to_id);
+        } else {
+            for (const auto& kv : multi0) {
+                const std::string& gene = kv.first;
+                for (int i = 0; i < FileNo; ++i) {
+                    FileSingleExonGeneNumber[i][gene] = FileMultiExonGeneNumber[i][gene];
+                }
             }
         }
+    }    
 
-        write_transcript_file(File_k_TranscriptNumber, Finally_Annotations, ALLBarcode, 
-                            k, IsoformFilePath, IsoformMutexes, RC_threshold,
-                            groupSeReads.Transcript_with_SE_reads, groupinform.GroupReadBarcodes, groupinform.GroupReadFiles,
-                            gtfFilePath, chrchr, gtfexon.GTF_transcript[chrchr], gtfexon.GTF_transcript_strand[chrchr], transcript_to_id);
-
-        write_gene_file(File_K_GeneNumber, groupSeReads.file_SE_reads_gene_number[k], groupinform.GroupReadBarcodes, 
-                        ALLBarcode, k, GeneFilePath, GeneMutexes, RC_threshold);
-
+    const auto& final0 = FileSingleExonGeneNumber[0];
+    for (const auto& kv : final0) {
+        const std::string& gene = kv.first;
+        buffer.append(gene);
+        for (int i = 0; i < FileNo; ++i) {
+            buffer.push_back('\t');
+            buffer.append(std::to_string(FileSingleExonGeneNumber[i][gene]));
+        }
+        buffer.push_back('\n');
+    }    
+    {
+        std::unique_lock<std::mutex> lock(geneCountMutex);
+        geneFilePath << buffer;
     }
-    
 }
+
 
 
 void processGroup(std::streampos& start, std::streampos& end, 
                   const std::string& sam_file_path, 
                   const int& Sj_supportReadNumber, unGTF& gtf_full, 
                   GTFsj& gtf_splice, const int& GraphDis,
-                  std::ofstream& updatedgtffile, std::ofstream& tracefile,
-                  std::vector<std::unique_ptr<std::ofstream>>& isoformfilePath,
-                  std::vector<std::mutex>& isoformMutexes,
-                  std::vector<std::unique_ptr<std::ofstream>>& genefilePath,
-                  std::vector<std::mutex>& geneMutexes,
-                  int& fileno, std::string& outputPath,
-                  std::map<std::string, std::set<std::string>>& filebarcodeSet,
-                  int& singleEdge, int& ReadCount_threshold,
-                  const int& umiMode) {
+                  std::ofstream& updatedgtffile, std::ofstream& isoformcountfile,
+                  std::ofstream& genecountfile, std::ofstream& tracefile,
+                  int& fileno, int& singleEdge, int& ReadCount_threshold) {
     
     GroupInformation group_information = knowGroupInformation(start, end, sam_file_path, Sj_supportReadNumber);
+
     std::string chrchr = group_information.chrName;
     std::array<int,2> groupcoverage = group_information.GroupCoverage;
-    
+
     SE_belong2_genetranscript group_se_reads;
     GroupAnnotation group_annotation;
+    std::unordered_map<int, std::unordered_map<std::string, double>> file_multiexon_gene_number; 
     SpliceChainClass spliceclass;
-    
+
     if ( (!group_information.GroupSingleExon.empty()) or (!group_information.GroupReadSjs.empty()) ) {
         group_annotation = get_group_single_exon_gene_annotation(gtf_full.GTF_gene[chrchr], groupcoverage,
                                 gtf_full.GTF_gene2transcript[chrchr], gtf_full.GTF_transcript[chrchr], gtf_splice.mSJs[chrchr], chrchr);
@@ -5051,8 +5564,8 @@ void processGroup(std::streampos& start, std::streampos& end,
     if (!group_information.GroupReadSjs.empty()) {
         spliceclass = generate_splice_chain_class(group_information.GroupReadSjs, group_information.GroupReadCoverage, 
                                                 group_annotation.group_me_SJs, group_information.GroupSigns, 
-                                                gtf_splice.mSJsBE[chrchr], group_information.GroupReadFiles, group_information.GroupReadBarcodes, 
-                                                group_information.GroupReadUMIs, tracefile, Sj_supportReadNumber, umiMode);
+                                                gtf_splice.mSJsBE[chrchr], group_information.GroupReadFiles, 
+                                                tracefile, Sj_supportReadNumber, chrchr); 
         group_information.GroupSigns.clear();
         group_information.GroupReadCoverage.clear();
     }
@@ -5060,31 +5573,28 @@ void processGroup(std::streampos& start, std::streampos& end,
     if (!group_information.GroupSingleExon.empty()) {
         group_se_reads = get_group_singleexon_reads_2gene(group_annotation, group_information.GroupSingleExon, 
                                         group_information.GroupReadFiles, gtf_full.GTF_gene2transcript[chrchr], 
-                                        gtf_full.GTF_transcript[chrchr], fileno, singleEdge, chrchr, spliceclass.FSM, tracefile,
-                                        group_information.GroupReadBarcodes, group_information.GroupReadUMIs,
-                                        umiMode);
-
-        write_single_exon_gtf_trace_sc(fileno, group_information.GroupReadFiles, group_se_reads.Transcript_with_SE_reads, 
-                                    group_annotation.group_se_transcripts, updatedgtffile, tracefile, isoformfilePath, isoformMutexes, 
-                                    gtf_full.GTF_transcript_strand[chrchr], group_information.GroupReadBarcodes, 
-                                    chrchr, filebarcodeSet);    
+                                        gtf_full.GTF_transcript[chrchr], fileno, singleEdge, chrchr, spliceclass.FSM,
+                                        tracefile);          
+        write_single_exon_gtf_trace(fileno, group_information.GroupReadFiles, group_se_reads.Transcript_with_SE_reads, 
+                                    group_annotation.group_se_transcripts, updatedgtffile, isoformcountfile, 
+                                    gtf_full.GTF_transcript_strand[chrchr], chrchr); // 单exon的reads是单exon转录本的都输出了;
     }
-    group_information.GroupSingleExon.clear();
+    group_information.GroupSingleExon.clear();        
 
-    DetectQuant(group_annotation, spliceclass, group_information, GraphDis, gtf_full, gtf_splice, 
-                updatedgtffile, tracefile, fileno,
-                filebarcodeSet, isoformfilePath, isoformMutexes, genefilePath, geneMutexes,
-                ReadCount_threshold, group_se_reads);
+    file_multiexon_gene_number = DetectQuant(group_annotation, spliceclass, group_information, 
+                                    GraphDis, gtf_full, gtf_splice, updatedgtffile, isoformcountfile, 
+                                    tracefile, fileno, group_annotation.group_se_transcripts, ReadCount_threshold,
+                                    group_se_reads, chrchr);
 
-    spliceclass.FSM.clear(); spliceclass.HighConClusters.clear();spliceclass.ISM.clear();
-    spliceclass.LowConClusters.clear();spliceclass.HighStrand.clear();
+    spliceclass.FSM.clear(); spliceclass.HighConClusters.clear();spliceclass.ISM.clear();spliceclass.LowConClusters.clear();spliceclass.HighStrand.clear();
 
-    if (group_information.GroupReadSjs.size() + group_information.GroupSingleExon.size() > 10000) {
+    write_gene_counts(group_se_reads.file_SE_reads_gene_number, file_multiexon_gene_number, genecountfile, fileno);
+
+    if (group_information.GroupReadSjs.size() + group_information.GroupSingleExon.size() > 100000) {
         std::unique_lock<std::mutex> lock(bigMutex);
         std::cout << (group_information.GroupReadSjs.size() + group_information.GroupSingleExon.size()) / ((double)1000000) << " M reads processed..\n";
     }
 }
-
 
 void basename(std::string& path) {
     size_t pos = path.find_last_of("/\\");
@@ -5094,205 +5604,140 @@ void basename(std::string& path) {
 }
 
 
-void rewrite_quantification_file_sc(const std::string& inputFilePath, int FileNumber, int GImode) {
+void rewrite_quantification_file_bulk(const std::string& inputFilePath, int GImode, 
+    std::vector<std::string>& samVecName) {
 
     if (GImode == 0) {
         // gene;
-        std::string thisFile = std::to_string(FileNumber);
-        std::string genefile = "counts_gene_" + thisFile + ".txt";
-        genefile = joinPath(inputFilePath, genefile);        
-
-        std::ifstream gene_input_file(genefile);
+        std::ifstream gene_input_file(inputFilePath);
         if (!gene_input_file) { std::cerr << "The sorting process failed.\n"; return; }
 
-        std::string header;
-        if (!std::getline(gene_input_file, header)) { std::cerr << "Failed to read header.\n"; return; }
-
-        std::stringstream header_ss(header);
-        std::string token;
-        if (!(header_ss >> token) || token != "gene_id") {
-            std::cerr << "Header format error: expected 'gene_id' as first column.\n";
-            return;
-        }
-
-        std::vector<std::string> barcodes;  
-        while (header_ss >> token) barcodes.push_back(std::move(token));
-
-        size_t num_barcodes = barcodes.size();
-        if (num_barcodes == 0) {
-            std::cerr << "No barcodes found in header.\n";
-            return;
-        }
-
-        std::unordered_map<std::string, std::vector<int64_t>> gene_counts; gene_counts.reserve(50000);
         std::string line;
-        while (std::getline(gene_input_file, line)) {
-            if (line.empty()) continue;
+        double gene_count;
+        const size_t K = samVecName.size();
 
-            std::istringstream line_ss(line);
-            std::string gene_id;
-            if (!(line_ss >> gene_id)) continue;
-
-            std::vector<int64_t> counts(num_barcodes, 0);
-            int64_t val;
-            size_t col_idx = 0;
-            while (line_ss >> val) {
-                if (col_idx < num_barcodes) {
-                    counts[col_idx] = val;
-                    ++col_idx;
-                } else {
-                    break;
-                }
-            }
-            if (col_idx < num_barcodes) {
-                std::cerr << "Column missing for " << gene_id << "\n";
-            }
-            auto it = gene_counts.find(gene_id);
-            if (it == gene_counts.end()) {
-                gene_counts.emplace(std::move(gene_id), std::move(counts));
+        getline(gene_input_file, line);
+        std::unordered_map<std::string, size_t> gene2idx; gene2idx.reserve(50000);
+        std::vector<std::string> idx2gene; idx2gene.reserve(50000);
+        std::vector<std::vector<double>> X; X.reserve(50000);
+        
+        while (gene_input_file >> line) {
+            auto it = gene2idx.find(line);
+            size_t r;
+            if (it == gene2idx.end()) {
+                r = X.size();
+                gene2idx.emplace(line, r);
+                idx2gene.push_back(line);
+                X.emplace_back(K, 0.0);
             } else {
-                auto& existing = it->second;
-                for (size_t i = 0; i < num_barcodes; ++i) {
-                    existing[i] += counts[i];
+                r = it->second;
+            }
+
+            for (int j = 0; j < K; ++j) {
+                double v;
+                if (!(gene_input_file >> v)) {
+                    std::cerr << "format error: gene=" << line << " missing value at col " << j << "\n";
                 }
+                X[r][j] += v;
             }
-        }        
+        }
         gene_input_file.close();
-        // 输出;
-        std::ofstream out(genefile);
-        if (!out) { std::cerr << "Cannot open output file.\n"; return; }
-        std::ostringstream buffer;
-        size_t estimated_lines = gene_counts.size() + 1;  
-        size_t avg_gene_id_len = 20; 
-        size_t avg_number_len = 12; 
-        size_t estimated_size = estimated_lines * (avg_gene_id_len + num_barcodes * (avg_number_len + 1) + 10);
-        buffer.str().reserve(estimated_size);
 
-        buffer << "gene_id";
-        for (const auto& bc : barcodes) {
-            buffer << "\t" << bc;
-        }
-        buffer << "\n";            
-
-        for (const auto& kv : gene_counts) {
-            buffer << kv.first;
-            for (int64_t v : kv.second) {
-                buffer << "\t" << v;
+        // rewrite Gene;
+        std::ofstream gene_output_file(inputFilePath);
+        if (!gene_output_file) { std::cerr << "Open failed.\n"; return; }
+        std::string buffer; buffer.reserve(X.size() * (K + 1) * 20);
+        buffer += "gene_id\t";
+        for (std::string& samName:samVecName) {
+            basename(samName);
+            buffer += samName;
+            buffer += "\t";
+        } 
+        buffer += "\n";
+        for (size_t i = 0; i < X.size(); ++i) {
+            buffer += idx2gene[i];
+            buffer += "\t";
+            for (size_t j = 0; j < K; ++j) {
+                buffer += std::to_string(X[i][j]);
+                buffer += "\t";
             }
-            buffer << "\n";
+            buffer += "\n";
         }
-        out << buffer.str();
-        out.close();
-        std::cout << "Gene file " << FileNumber << " end.\n";
+        gene_output_file << buffer;
+        gene_output_file.close();
 
     } else {
         // isoform;
-        std::string thisFile = std::to_string(FileNumber);
-        std::string transcriptfile = "counts_transcript_" + thisFile + ".txt";
-        transcriptfile = joinPath(inputFilePath, transcriptfile); 
+        std::ifstream transcript_input_file(inputFilePath);
+        if (!transcript_input_file) {std::cerr << "The sorting process failed.\n"; return;}        
 
-        std::ifstream transcript_input_file(transcriptfile);
-        if (!transcript_input_file) {std::cerr << "The transcript file open failed: " << transcriptfile << "\n"; return;}
+        std::string transcript_id, gene_id;
+        const size_t K = samVecName.size();
 
-        std::string header;
-        if (!std::getline(transcript_input_file, header)) { std::cerr << "Failed to read header in transcript file.\n"; return;}
+        std::string header_line;
+        getline(transcript_input_file, header_line);
+        std::unordered_map<std::string, size_t> transcript2idx; 
+        transcript2idx.reserve(100000);
+        std::vector<std::string> idx2transcript; 
+        idx2transcript.reserve(100000);
+        std::vector<std::string> idx2gene; 
+        idx2gene.reserve(100000);
+        std::vector<std::vector<double>> X; 
+        X.reserve(100000);
 
-        std::istringstream header_ss(header);
-        std::string token;
-        if (!(header_ss >> token) || token != "transcript_id") {
-            std::cerr << "Header format error: expected 'transcript_id' as first column.\n";
-            return;
-        }        
-
-        if (!(header_ss >> token) || token != "gene_id") {
-            std::cerr << "Header format error: expected 'gene_id' as second column.\n";
-            return;
-        }
-
-        std::vector<std::string> barcodes;  
-        while (header_ss >> token) barcodes.push_back(std::move(token));
-
-        size_t num_barcodes = barcodes.size();
-        if (num_barcodes == 0) {
-            std::cerr << "No barcodes found in transcript header.\n";
-            return;
-        }
-
-        std::unordered_map<std::string, std::pair<std::string, std::vector<int64_t>>> transcript_counts; transcript_counts.reserve(100000);
-        std::string line;
-        while (std::getline(transcript_input_file, line)) {
-            if (line.empty()) continue;
-
-            std::istringstream line_ss(line);
-            std::string transcript_id;
-            std::string gene_id;
-
-            if (!(line_ss >> transcript_id >> gene_id)) continue;
-
-            std::vector<int64_t> counts(num_barcodes, 0);
-            int64_t val;
-            size_t col_idx = 0;
-            while (line_ss >> val) {
-                if (col_idx < num_barcodes) {
-                    counts[col_idx] = val;
-                    ++col_idx;
-                } else {
-                    break;
-                }
-            }
-
-            if (col_idx < num_barcodes) {
-                std::cerr << "Column missing for transcript " << transcript_id << "\n";
-            }
-
-            auto it = transcript_counts.find(transcript_id);
-            if (it == transcript_counts.end()) {
-                transcript_counts.emplace(
-                    std::move(transcript_id),
-                    std::make_pair(std::move(gene_id), std::move(counts))
-                );
+        while (transcript_input_file >> transcript_id >> gene_id) {
+            auto it = transcript2idx.find(transcript_id);
+            size_t r;
+            if (it == transcript2idx.end()) {
+                r = X.size();
+                transcript2idx.emplace(transcript_id, r);
+                idx2transcript.push_back(transcript_id);
+                idx2gene.push_back(gene_id);
+                X.emplace_back(K, 0.0);
             } else {
-                if (it->second.first != gene_id) {
-                    std::cerr << "Warning: transcript_id " << transcript_id 
-                              << " has inconsistent gene_id (" << it->second.first 
-                              << " vs " << gene_id << "), keeping the first one.\n";
+                r = it->second;
+            }
+
+            for (int j = 0; j < K; ++j) {
+                double v;
+                if (!(transcript_input_file >> v)) {
+                    std::cerr << "format error: transcript=" << transcript_id 
+                              << " missing value at col " << j << "\n";
                 }
-                auto& existing_counts = it->second.second;
-                for (size_t i = 0; i < num_barcodes; ++i) {
-                    existing_counts[i] += counts[i];
-                }
+                X[r][j] += v;
             }
         }
         transcript_input_file.close();        
-        std::ofstream out(transcriptfile);
-        if (!out) { std::cerr << "Cannot open output transcript file.\n"; return; }
 
-        std::ostringstream buffer;
-        size_t estimated_lines = transcript_counts.size() + 1;
-        size_t avg_transcript_id_len = 20;
-        size_t avg_gene_id_len = 20;
-        size_t avg_number_len = 12;
-        size_t estimated_size = estimated_lines * (avg_transcript_id_len + avg_gene_id_len + 
-                                 num_barcodes * (avg_number_len + 1) + 20);
-        buffer.str().reserve(estimated_size);           
-        buffer << "transcript_id\tgene_id";
-        for (const auto& bc : barcodes) {
-            buffer << "\t" << bc;
-        }
-        buffer << "\n";
-
-        for (const auto& kv : transcript_counts) {
-            buffer << kv.first << "\t" << kv.second.first;
-            for (int64_t v : kv.second.second) {
-                buffer << "\t" << v;
+        // rewrite Transcript;
+        std::ofstream transcript_output_file(inputFilePath);
+        if (!transcript_output_file) { std::cerr << "Open failed.\n"; return; }
+        std::string buffer; 
+        buffer.reserve(X.size() * (K + 2) * 20);
+        buffer += "transcript_id\tgene_id\t";
+        for (std::string& samName : samVecName) {
+            basename(samName);
+            buffer += samName;
+            buffer += "\t";
+        } 
+        buffer += "\n";
+        
+        for (size_t i = 0; i < X.size(); ++i) {
+            buffer += idx2transcript[i];
+            buffer += "\t";
+            buffer += idx2gene[i];
+            buffer += "\t";
+            for (size_t j = 0; j < K; ++j) {
+                buffer += std::to_string(X[i][j]);
+                buffer += "\t";
             }
-            buffer << "\n";
+            buffer += "\n";
         }
-        out << buffer.str();
-        out.close();
-        std::cout << "Transcript file " << FileNumber << " end.\n";
+        transcript_output_file << buffer;
+        transcript_output_file.close();        
     }
 }
+
 
 
 
@@ -5310,13 +5755,10 @@ int main(int argc, char* argv[])
     int SJDistance = 18;
     int SJ_support_read_number = 2;
     int Graph_distance = 60;
-    int Thread = 8;
+    int Thread = 10;
     int Read_count = 0;
-    int single_exon_edge = 500;
-    std::string umi = "U8:Z:";
-    std::string barcode = "BC:Z:";
+    int single_exon_edge = 300;
     int mapq = 0;
-    int do_umi_delete = 0;
 
     std::cout << R"(
      ____               ____   ___  _      ___ 
@@ -5328,7 +5770,7 @@ int main(int argc, char* argv[])
 
     std::cout << "         BroCOLI  Version: 1.0.0" << std::endl;
 
-    while ((c = getopt_long(argc, argv, "s:f:g:o:j:n:m:e:d:t:u:b:r:k:h", long_options, &option_index)) != -1) {
+    while ((c = getopt_long(argc, argv, "s:f:g:o:j:n:m:e:d:t:r:h", long_options, &option_index)) != -1) {
         switch (c) {
             case 's':
                 samfile_name = optarg;
@@ -5360,18 +5802,9 @@ int main(int argc, char* argv[])
             case 't':
                 Thread = std::stoi(optarg);   
                 break;
-            case 'u':
-                umi = optarg;   
-                break;
-            case 'b':
-                barcode = optarg;  
-                break;
             case 'r':
                 Read_count = std::stoi(optarg);   
-                break;      
-            case 'k':
-                do_umi_delete = std::stoi(optarg);   
-                break;        
+                break;
             case 'h':
                 print_usage(argv[0]);
                 exit(EXIT_FAILURE);              
@@ -5390,17 +5823,18 @@ int main(int argc, char* argv[])
 
     std::vector<std::string> sam_file_vec = traverse_sam_file(samfile_name, output_file_name);
 
-    std::vector<std::string> outputFileVec = check_catalog_exist(output_file_name);
+    std::vector<std::string> outputFileVec = check_catalog_exist(output_file_name, sam_file_vec);
     std::ofstream gtf_file(outputFileVec[0], std::ios::app);
-    std::ofstream trace_file(outputFileVec[1], std::ios::app);
+    std::ofstream isoform_file(outputFileVec[1], std::ios::app);
+    std::ofstream gene_file(outputFileVec[2], std::ios::app);
+    std::ofstream trace_file(outputFileVec[3], std::ios::app);
 
     std::cout << "*****" << std::endl;
     std::cout << "Input file: " << samfile_name << std::endl;
     std::cout << "FASTA file: " << fastafile_name << std::endl;
     std::cout << "GTF file: " << gtffile_name << std::endl;
     std::cout << "Output file: " << output_file_name << std::endl;
-    std::cout << "UMI deduplication(0 False 1 True): " << do_umi_delete << std::endl;
-    std::cout << "Single exon boundary : " << single_exon_edge << std::endl;
+    std::cout << "Single exon boundary: " << single_exon_edge << std::endl;
     std::cout << "SJ Distance: " << SJDistance << std::endl;
     std::cout << "SJ support read number: " << SJ_support_read_number << std::endl;
     std::cout << "MAPQ: " << mapq << std::endl;
@@ -5408,22 +5842,17 @@ int main(int argc, char* argv[])
     std::cout << "Thread: " << Thread << std::endl;
     std::cout << "Output min read count: " << Read_count << std::endl;
     std::cout << "*****" << std::endl;
-
-    std::cout << "*** " << "Read and process the files ...... " << std::endl;
+    
+    std::cout << "*** " << "Read and process the files ......\n";
     std::unordered_map<std::string, std::string> Fasta = Read_fasta_file(fastafile_name);
 
     auto start = std::chrono::high_resolution_clock::now();
-    FileSplit BroCOLIfile = thread_all_read_sam_files(samfile_name, sam_file_vec, Thread, output_file_name, SJDistance, Fasta, mapq, umi, barcode);
+    FileSplit BroCOLIfile = thread_all_read_sam_files(samfile_name, sam_file_vec, Thread, output_file_name, SJDistance, Fasta, mapq);
     Fasta.clear();
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = end - start;
-    std::cout << "Read file information cost time = " << diff.count() << " s\n";     
-
-    std::vector<std::unique_ptr<std::ofstream>> BroCOLIQuantfile = write_quantification_files(output_file_name, BroCOLIfile.file_barcodeSet);
-    std::vector<std::mutex> TranscriptMutexes(BroCOLIQuantfile.size());
-    std::vector<std::unique_ptr<std::ofstream>> BroCOLIGenefile = write_quantification_Gene_files(output_file_name, BroCOLIfile.file_barcodeSet);
-    std::vector<std::mutex> GeneMutexes(BroCOLIGenefile.size());
+    std::cout << "Read file information cost time = " << diff.count() << " s\n";    
 
     unGTF GTF_full = get_gtf_annotation(gtffile_name);
     GTFsj GTF_Splice = get_SJs_SE(GTF_full.GTF_transcript);
@@ -5444,24 +5873,19 @@ int main(int argc, char* argv[])
                 BroCOLIfile.reads_pointer[2*i+1], 
                 BroCOLIfile.readtxt_path, 
                 SJ_support_read_number, 
-                std::ref(GTF_full), 
-                std::ref(GTF_Splice),
+                GTF_full, 
+                GTF_Splice,
                 Graph_distance,
                 gtf_file,
+                isoform_file,
+                gene_file,
                 trace_file,
-                BroCOLIQuantfile,
-                TranscriptMutexes,
-                BroCOLIGenefile,
-                GeneMutexes,
                 BroCOLIfile.FileNo,
-                std::ref(output_file_name),
-                std::ref(BroCOLIfile.file_barcodeSet),
                 single_exon_edge,
-                Read_count,
-                do_umi_delete);
+                Read_count);
             }));
     }
-    
+
     for (auto& future : futures) {
         future.get();  
     }
@@ -5470,17 +5894,19 @@ int main(int argc, char* argv[])
     std::cout << "Identification and quantification cost time = " << diff.count() << " s\n";
 
     gtf_file.close();
+    isoform_file.close();
+    gene_file.close();
     trace_file.close();
     std::cout << "*** BroCOLI quantification has been successfully completed! ***\n";
 
     std::cout << "*** Rewriting the quantification file ......\n";
-    for (int i = 0; i < BroCOLIfile.FileNo; i++) {
-        rewrite_quantification_file_sc(output_file_name, i, 0);
-        rewrite_quantification_file_sc(output_file_name, i, 1);        
-    }
+    rewrite_quantification_file_bulk(outputFileVec[2], 0, sam_file_vec);
+    rewrite_quantification_file_bulk(outputFileVec[1], 1, sam_file_vec);
     std::cout << "BroCOLI has successfully concluded.\n";
-
     return 0;
 }
+
+
+
 
 
