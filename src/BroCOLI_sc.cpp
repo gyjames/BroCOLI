@@ -4331,13 +4331,15 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
             }
 
             if (ColIndexVec.size() > 1) {
-                if (max_ratio > 0.4) {
+                if (max_ratio >= 0.5) {
                     for (const auto& ColIndex:ColIndexVec) {
-                        std::string TransName = Order_Transcript_Name[ColIndex];
-                        this_ratio = static_cast<double>(AreadSJs.size())/FinallyAnnotations.Transcript_Annotations[TransName].first.size();
-                        if (this_ratio < max_ratio) {
-                            EachClusterRowVector[ColIndex] = 0;
-                            ism_gtf_name.erase(std::remove(ism_gtf_name.begin(), ism_gtf_name.end(), TransName), ism_gtf_name.end());
+                        if (ColIndex >= 0 && ColIndex < static_cast<int>(Order_Transcript_Name.size())) {
+                            std::string TransName = Order_Transcript_Name[ColIndex];
+                            this_ratio = static_cast<double>(AreadSJs.size())/FinallyAnnotations.Transcript_Annotations[TransName].first.size();
+                            if (this_ratio < max_ratio) {
+                                EachClusterRowVector[ColIndex] = 0;
+                                ism_gtf_name.erase(std::remove(ism_gtf_name.begin(), ism_gtf_name.end(), TransName), ism_gtf_name.end());
+                            }
                         }
                     }
                 }
@@ -4393,7 +4395,6 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
 
     std::set<int> MergeFalseSet(falsenodeset.begin(), falsenodeset.end());
     Eigen::MatrixXd False_novel_candidate_matrix(MergeFalseSet.size(), Transcript_Number);
-
     std::set<int> FalseNode_NeighborSet;
     std::set<int> FalseNode_TrueSet;
     std::string itsname;
@@ -4418,21 +4419,25 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
             ism_gtf_name.clear();
 
             if (FalseNode_TrueSet.size() != 0) {
-
-                for(const auto& EachTNode:FalseNode_TrueSet){
-                    if (EachTNode < Disinform.Index2Anno.size()){
+                for(const auto& EachTNode:FalseNode_TrueSet) {
+                    if (EachTNode < Disinform.Index2Anno.size()) {
                         itsname = Disinform.Index2Anno[EachTNode];
-                        auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
-                        FalseNode_RowVector[itwhere] = 1;
-                        ism_gtf_name.push_back(itsname);
+                        auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
+                        if (it != Order_Transcript_Name.end()) {  
+                            auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
+                            FalseNode_RowVector[itwhere] = 1;
+                            ism_gtf_name.push_back(itsname);
+                        }
                     } else {
                         itsname = Disinform.Index2novelname[EachTNode];
-                        auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
-                        FalseNode_RowVector[itwhere] = 1;
-                        ism_gtf_name.push_back(itsname);
+                        auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
+                        if (it != Order_Transcript_Name.end()) {  
+                            auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
+                            FalseNode_RowVector[itwhere] = 1;
+                            ism_gtf_name.push_back(itsname);
+                        }
                     }
                 }
-
                 False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
             } 
             else
@@ -4443,17 +4448,23 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
                         for (const auto& node:Disinform.NodeDistanceSet[neinode]){
                             if (node < Disinform.Index2Anno.size()) {
                                 itsname = Disinform.Index2Anno[node];
-                                auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
-                                FalseNode_RowVector[itwhere] = 1;
-                                ism_gtf_name.push_back(itsname);
-                                countC++;
-                            } else {
-                                if (truenodeset.find(node) != truenodeset.end()) {
-                                    itsname = Disinform.Index2novelname[node];
-                                    auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
+                                auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
+                                if (it != Order_Transcript_Name.end()) {  
+                                    auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
                                     FalseNode_RowVector[itwhere] = 1;
                                     ism_gtf_name.push_back(itsname);
                                     countC++;
+                                }
+                            } else {
+                                if (truenodeset.find(node) != truenodeset.end()) {
+                                    itsname = Disinform.Index2novelname[node];
+                                    auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
+                                    if (it != Order_Transcript_Name.end()) {  
+                                        auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
+                                        FalseNode_RowVector[itwhere] = 1;
+                                        ism_gtf_name.push_back(itsname);
+                                        countC++;
+                                    } 
                                 }
                             }
                         }
@@ -4472,9 +4483,11 @@ void Quantification_initialization_Barcodes(std::map<std::size_t, std::vector<st
 
                     auto min_it = std::min_element(houX.begin(), houX.end());
                     int min_index = std::distance(houX.begin(), min_it);
-                    FalseNode_RowVector[min_index] = 1;
-                    False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
-                    ism_gtf_name.push_back(Order_Transcript_Name[min_index]);
+                    if (min_index >= 0 && min_index < static_cast<int>(Order_Transcript_Name.size())) {
+                        FalseNode_RowVector[min_index] = 1;
+                        False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
+                        ism_gtf_name.push_back(Order_Transcript_Name[min_index]);
+                    }
                 }
             }
 
