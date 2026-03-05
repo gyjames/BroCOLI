@@ -341,7 +341,7 @@ void get_10x3v3_inform(const std::string& whitelistPath, const std::string& barc
     uint32_t umi_val = 0;
 
     while (getline(file, line)) {
-      if (line.size() < 24) continue;          
+      if (line.size() < 16) continue;          
       bc = line.substr(0, 16);   
       BarcodesX.emplace(bc);
       std::vector<uint32_t>& umi_list = WhiteList[bc];
@@ -421,7 +421,7 @@ void get_visium_inform(const std::string& whitelistPath, const std::string& barc
     uint32_t umi_val = 0;
 
     while (getline(file, line)) {
-      if (line.size() < 24) continue;          
+      if (line.size() < 16) continue;          
       bc = line.substr(0, 16);   
       BarcodesX.emplace(bc);
       std::vector<uint32_t>& umi_list = WhiteList[bc];
