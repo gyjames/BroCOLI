@@ -40,6 +40,7 @@ Please check out the documentation and tutorials at [BroCOLI Documentation](http
 
 1. [C++11 ThreadPool](https://github.com/progschj/ThreadPool)
 2. Li H. Minimap2: pairwise alignment for nucleotide sequences[J]. Bioinformatics, 2018, 34(18): 3094-3100.
+3. Santiago Marco-Sola, Juan Carlos Moure, Miquel Moreto, Antonio Espinosa. "Fast gap-affine pairwise alignment using the wavefront algorithm.". Bioinformatics, 2020. [WFA2](https://github.com/smarco/WFA2-lib) 
 
 
 ## Contact
