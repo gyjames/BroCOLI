@@ -559,14 +559,14 @@ struct GTF
     std::map<std::string, std::map<std::string, std::vector<std::string>>> GTF_gene2transcript;
 };
 
-// struct unGTF
-// {
-//     std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::array<int,2>>>> GTF_transcript;
-//     std::unordered_map<std::string, std::unordered_map<std::string, std::array<int,2>>> GTF_gene; 
-//     std::unordered_map<std::string, std::unordered_map<std::string, std::string>> GTF_transcript_strand;
-//     std::unordered_map<std::string, std::unordered_map<std::string, std::string>> GTF_gene_strand;
-//     std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>> GTF_gene2transcript;
-// };
+struct unGTF
+{
+    std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::array<int,2>>>> GTF_transcript;
+    std::unordered_map<std::string, std::unordered_map<std::string, std::array<int,2>>> GTF_gene; 
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> GTF_transcript_strand;
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> GTF_gene_strand;
+    std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>> GTF_gene2transcript;
+};
 
 // unGTF get_gtf_annotation_simple(const std::string& GTFFile_name) {
 //     unGTF result;
