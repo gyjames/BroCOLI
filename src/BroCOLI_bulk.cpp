@@ -571,6 +571,15 @@ struct GTF
     std::map<std::string, std::map<std::string, std::vector<std::string>>> GTF_gene2transcript;
 };
 
+inline std::string extractGTFAttr(const std::string& attrs, const std::string& key) {
+    std::string search = key + " \"";
+    auto pos = attrs.find(search);
+    if (pos == std::string::npos) return {};
+    pos += search.size();
+    auto end = attrs.find('"', pos);
+    return (end == std::string::npos) ? std::string{} : attrs.substr(pos, end - pos);
+}
+
 unGTF get_gtf_annotation(std::string& GTFFile_name) {
     GTF GTFAll_Info;
 
@@ -619,17 +628,21 @@ unGTF get_gtf_annotation(std::string& GTFFile_name) {
                     early_Exonstrand = now_Exonstrand;
                     now_Exonstrand = tokens[6]; 
 
-                    std::string AllEndT = tokens.back();
+                    // std::string AllEndT = tokens.back();
+                    // std::istringstream EndTT(AllEndT);
+                    // std::string Endtoken;
+                    // std::vector<std::string> Endtokens;
 
-                    std::istringstream EndTT(AllEndT);
-                    std::string Endtoken;
-                    std::vector<std::string> Endtokens;
-
-                    while (std::getline(EndTT, Endtoken, '"')){
-                        Endtokens.push_back(Endtoken);
-                    }
+                    // while (std::getline(EndTT, Endtoken, '"')) {
+                    //     Endtokens.push_back(Endtoken);
+                    // }
+                    // early_gene_transcript_name = now_gene_transcript_name;
+                    // now_gene_transcript_name = Endtokens[1]+'|'+Endtokens[3];
+                    const std::string& attr_col = tokens.back();
                     early_gene_transcript_name = now_gene_transcript_name;
-                    now_gene_transcript_name = Endtokens[1]+'|'+Endtokens[3];
+                    now_gene_transcript_name = extractGTFAttr(attr_col, "gene_id")
+                                            + '|'
+                                            + extractGTFAttr(attr_col, "transcript_id");
 
                     if ((GTFAnno_SJs.size() != 0) && (early_gene_transcript_name != now_gene_transcript_name)){
                         if ((GTFAnno_SJs.size()>1) && (GTFAnno_SJs[0][0] > GTFAnno_SJs[1][0])){ 
@@ -4648,14 +4661,20 @@ IndicateFire Quantification_initialization(std::map<std::size_t, std::vector<std
                 for(const auto& EachTNode:FalseNode_TrueSet) {
                     if (EachTNode < Index2Anno_size) {
                         itsname = Disinform.Index2Anno[EachTNode];
-                        auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
-                        FalseNode_RowVector[itwhere] = 1;
-                        ism_gtf_name.push_back(itsname);
+                        auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
+                        if (it != Order_Transcript_Name.end()) {  
+                            auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
+                            FalseNode_RowVector[itwhere] = 1;
+                            ism_gtf_name.push_back(itsname);
+                        }
                     } else {
                         itsname = Disinform.Index2novelname[EachTNode];
-                        auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
-                        FalseNode_RowVector[itwhere] = 1;
-                        ism_gtf_name.push_back(itsname);
+                        auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
+                        if (it != Order_Transcript_Name.end()) {  
+                            auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
+                            FalseNode_RowVector[itwhere] = 1;
+                            ism_gtf_name.push_back(itsname);
+                        }
                     }
                 }
                 False_novel_candidate_matrix.row(RowIndex) = FalseNode_RowVector;
@@ -4669,16 +4688,22 @@ IndicateFire Quantification_initialization(std::map<std::size_t, std::vector<std
                         for (const auto& node:Disinform.NodeDistanceSet[neinode]) {
                             if (node < Index2Anno_size) {
                                 itsname = Disinform.Index2Anno[node];
-                                auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
-                                FalseNode_RowVector[itwhere] = 1;
-                                ism_gtf_name.push_back(itsname);
+                                auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
+                                if (it != Order_Transcript_Name.end()) {  
+                                    auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
+                                    FalseNode_RowVector[itwhere] = 1;
+                                    ism_gtf_name.push_back(itsname);
+                                }
                                 countC++;
                             } else {
                                 if (truenodeset.find(node) != truenodeset.end()) {
                                     itsname = Disinform.Index2novelname[node];
-                                    auto itwhere = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname) - Order_Transcript_Name.begin();
-                                    FalseNode_RowVector[itwhere] = 1;
-                                    ism_gtf_name.push_back(itsname);
+                                    auto it = std::find(Order_Transcript_Name.begin(), Order_Transcript_Name.end(), itsname);
+                                    if (it != Order_Transcript_Name.end()) {  
+                                        auto itwhere = std::distance(Order_Transcript_Name.begin(), it);
+                                        FalseNode_RowVector[itwhere] = 1;
+                                        ism_gtf_name.push_back(itsname);
+                                    }
                                     countC++;
                                 }
                             }
@@ -5973,9 +5998,10 @@ int main(int argc, char* argv[])
     std::chrono::duration<double> diff = end - start;
     std::cout << "Read file information cost time = " << diff.count() << " s\n";    
 
-    unGTF GTF_full = get_gtf_annotation(gtffile_name);
-    // unGTF GTF_full = get_gtf_annotation_simple(gtffile_name);
+    unGTF GTF_full = get_gtf_annotation(gtffile_name); // unGTF GTF_full = get_gtf_annotation_simple(gtffile_name);
+    std::cout << "The extraction of GTF information is complete.\n"; 
     GTFsj GTF_Splice = get_SJs_SE(GTF_full.GTF_transcript);
+    std::cout << "The extraction of SJ information is complete.\n"; 
     std::vector<std::size_t> Group_idx = sort_indexes_e(BroCOLIfile.group_reads_number);
     std::cout << "*** File processing completed! ***\n";
 
