@@ -568,6 +568,15 @@ struct unGTF
     std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>> GTF_gene2transcript;
 };
 
+inline std::string extractGTFAttr(const std::string& attrs, const std::string& key) {
+    std::string search = key + " \"";
+    auto pos = attrs.find(search);
+    if (pos == std::string::npos) return {};
+    pos += search.size();
+    auto end = attrs.find('"', pos);
+    return (end == std::string::npos) ? std::string{} : attrs.substr(pos, end - pos);
+}
+
 // unGTF get_gtf_annotation_simple(const std::string& GTFFile_name) {
 //     unGTF result;
 //     if (GTFFile_name.empty()) {
@@ -730,17 +739,21 @@ unGTF get_gtf_annotation(std::string& GTFFile_name) {
                     early_Exonstrand = now_Exonstrand;
                     now_Exonstrand = tokens[6]; 
 
-                    std::string AllEndT = tokens.back();
+                    // std::string AllEndT = tokens.back();
+                    // std::istringstream EndTT(AllEndT);
+                    // std::string Endtoken;
+                    // std::vector<std::string> Endtokens;
 
-                    std::istringstream EndTT(AllEndT);
-                    std::string Endtoken;
-                    std::vector<std::string> Endtokens;
-
-                    while (std::getline(EndTT, Endtoken, '"')){
-                        Endtokens.push_back(Endtoken);
-                    }
+                    // while (std::getline(EndTT, Endtoken, '"')){
+                    //     Endtokens.push_back(Endtoken);
+                    // }
+                    // early_gene_transcript_name = now_gene_transcript_name;
+                    // now_gene_transcript_name = Endtokens[1]+'|'+Endtokens[3];
+                    const std::string& attr_col = tokens.back();
                     early_gene_transcript_name = now_gene_transcript_name;
-                    now_gene_transcript_name = Endtokens[1]+'|'+Endtokens[3];
+                    now_gene_transcript_name = extractGTFAttr(attr_col, "gene_id")
+                                            + '|'
+                                            + extractGTFAttr(attr_col, "transcript_id");
 
                     if ((GTFAnno_SJs.size() != 0) && (early_gene_transcript_name != now_gene_transcript_name)){
                         if ((GTFAnno_SJs.size()>1) && (GTFAnno_SJs[0][0] > GTFAnno_SJs[1][0])){ 
@@ -5541,8 +5554,10 @@ int main(int argc, char* argv[])
     std::vector<std::mutex> GeneMutexes(BroCOLIGenefile.size());
 
     unGTF GTF_full = get_gtf_annotation(gtffile_name);
+    std::cout << "The extraction of GTF information is complete.\n"; 
     // unGTF GTF_full = get_gtf_annotation_simple(gtffile_name);
     GTFsj GTF_Splice = get_SJs_SE(GTF_full.GTF_transcript);
+    std::cout << "The extraction of SJ information is complete.\n"; 
     std::vector<std::size_t> Group_idx = sort_indexes_e(BroCOLIfile.group_reads_number);
     std::cout << "*** File processing completed! ***\n";
 
