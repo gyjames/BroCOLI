@@ -550,7 +550,6 @@ SpliceJs get_reads_allSJs(std::map<std::string, std::vector<std::array<int,2>>>&
 }
 
 
-
 struct GTF
 {
     std::map<std::string, std::map<std::string, std::vector<std::array<int,2>>>> GTF_transcript;
@@ -560,14 +559,128 @@ struct GTF
     std::map<std::string, std::map<std::string, std::vector<std::string>>> GTF_gene2transcript;
 };
 
-struct unGTF
-{
-    std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::array<int,2>>>> GTF_transcript;
-    std::unordered_map<std::string, std::unordered_map<std::string, std::array<int,2>>> GTF_gene; 
-    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> GTF_transcript_strand;
-    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> GTF_gene_strand;
-    std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>> GTF_gene2transcript;
-};
+// struct unGTF
+// {
+//     std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::array<int,2>>>> GTF_transcript;
+//     std::unordered_map<std::string, std::unordered_map<std::string, std::array<int,2>>> GTF_gene; 
+//     std::unordered_map<std::string, std::unordered_map<std::string, std::string>> GTF_transcript_strand;
+//     std::unordered_map<std::string, std::unordered_map<std::string, std::string>> GTF_gene_strand;
+//     std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>> GTF_gene2transcript;
+// };
+
+// unGTF get_gtf_annotation_simple(const std::string& GTFFile_name) {
+//     unGTF result;
+//     if (GTFFile_name.empty()) {
+//         std::cerr << "***** No GTF files are put into the program! *****\n";
+//         return result;
+//     }
+//     // 按键名提取属性值，兼容任意字段顺序
+//     auto extractAttr = [](const std::string& attrs, const std::string& key) -> std::string {
+//         std::string search = key + " \"";
+//         auto pos = attrs.find(search);
+//         if (pos == std::string::npos) return {};
+//         pos += search.size();
+//         auto end = attrs.find('"', pos);
+//         return (end == std::string::npos) ? std::string{} : attrs.substr(pos, end - pos);
+//     };
+//     std::ifstream gtf(GTFFile_name);
+//     if (!gtf) {
+//         std::cerr << "Cannot open GTF file: " << GTFFile_name << "\n";
+//         exit(EXIT_FAILURE);
+//     }
+//     std::cout << "***** Now open the gtf file: " << GTFFile_name << "! *****\n";
+
+//     // gene 聚合信息
+//     struct GeneAgg {
+//         int min_start = 0;
+//         int max_end   = 0;
+//         std::string strand;
+//         std::vector<std::string> tx_keys;
+//     };
+//     std::unordered_map<std::string,
+//         std::unordered_map<std::string, GeneAgg>> gene_agg;
+
+//     // 当前转录本状态
+//     std::string cur_chr, cur_tx_key, cur_strand;
+//     std::vector<std::array<int, 2>> cur_exons;
+
+//     // flush 当前转录本
+//     auto flush_tx = [&]() {
+//         if (cur_tx_key.empty() || cur_exons.empty()) return;
+
+//         if (cur_exons.size() > 1 && cur_exons[0][0] > cur_exons[1][0])
+//             std::reverse(cur_exons.begin(), cur_exons.end());
+
+//         result.GTF_transcript[cur_chr][cur_tx_key] = cur_exons;
+//         result.GTF_transcript_strand[cur_chr][cur_tx_key] = cur_strand;
+
+//         size_t p = cur_tx_key.find('|');
+//         std::string gene_id = cur_tx_key.substr(0, p);
+
+//         int tx_s = cur_exons.front()[0];
+//         int tx_e = cur_exons.back()[1];
+
+//         GeneAgg& agg = gene_agg[cur_chr][gene_id];
+//         if (agg.tx_keys.empty()) {
+//             agg.min_start = tx_s;
+//             agg.max_end   = tx_e;
+//             agg.strand    = cur_strand;
+//         } else {
+//             agg.min_start = std::min(agg.min_start, tx_s);
+//             agg.max_end   = std::max(agg.max_end,   tx_e);
+//         }
+//         agg.tx_keys.push_back(cur_tx_key);
+
+//         cur_exons.clear();
+//     };
+
+//     std::string line;
+//     while (std::getline(gtf, line)) {
+//         if (line.empty() || line[0] == '#') continue;
+
+//         std::string fields[9];
+//         std::istringstream iss(line);
+//         for (auto& x : fields) std::getline(iss, x, '\t');
+
+//         if (fields[2] != "exon") continue;
+
+//         std::string gene_id = extractAttr(fields[8], "gene_id");
+//         std::string tx_id   = extractAttr(fields[8], "transcript_id");
+//         if (gene_id.empty() || tx_id.empty()) continue;
+
+//         std::string tx_key = gene_id + "|" + tx_id;
+
+//         if (tx_key != cur_tx_key || fields[0] != cur_chr) {
+//             flush_tx();
+//             cur_chr    = fields[0];
+//             cur_tx_key = tx_key;
+//             cur_strand = fields[6];
+//         }
+
+//         std::array<int, 2> exon = {std::stoi(fields[3]), std::stoi(fields[4])};
+//         cur_exons.push_back(exon);
+//     }
+//     flush_tx();
+
+//     if (gtf.eof())
+//         std::cout << "***** The GTF file has been read to the end! *****\n";
+//     else
+//         std::cerr << "File read error!\n";
+
+//     // 将聚合结果写入 result
+//     for (auto& outer : gene_agg) {
+//         const std::string& chr = outer.first;
+//         for (auto& inner : outer.second) {
+//             const std::string& gene_id = inner.first;
+//             GeneAgg& agg = inner.second;
+//             std::array<int, 2> range = {agg.min_start, agg.max_end};
+//             result.GTF_gene[chr][gene_id]            = range;
+//             result.GTF_gene_strand[chr][gene_id]     = agg.strand;
+//             result.GTF_gene2transcript[chr][gene_id] = std::move(agg.tx_keys);
+//         }
+//     }
+//     return result;
+// }
 
 unGTF get_gtf_annotation(std::string& GTFFile_name) {
     GTF GTFAll_Info;
@@ -611,7 +724,7 @@ unGTF get_gtf_annotation(std::string& GTFFile_name) {
                     tokens.push_back(token);
                 } 
                 
-                if (tokens[2] == "exon"){
+                if (tokens[2] == "exon") {
                     early_chr_name = now_chr_name;
                     now_chr_name = tokens[0]; 
                     early_Exonstrand = now_Exonstrand;
@@ -4581,6 +4694,8 @@ void EM_Alg_Barcodes(std::unordered_map<std::string, std::vector<double>>& filet
     }
 
     Eigen::VectorXd Order_Transcript_Vector = Eigen::Map<Eigen::VectorXd>(Order_Transcript_Number.data(), Order_Transcript_Number.size());
+    size_t howMuch = Order_Transcript_Number.size();
+    int max_iter = (howMuch > 500) ? 4 : 10;
 
     if (Indicate_Number.Indicate_Matrix.rows() != 0 && Indicate_Number.Indicate_Matrix.cols() != 0) {
         Eigen::VectorXd P_Col_init0 = Eigen::VectorXd::Constant(
@@ -4603,7 +4718,7 @@ void EM_Alg_Barcodes(std::unordered_map<std::string, std::vector<double>>& filet
             sum_abs_diff = (P1 - P_Col_init0).cwiseAbs().sum();
             P_Col_init0 = P1;
             CountCyc = CountCyc + 1;
-        } while ((sum_abs_diff > 5e-2) and (CountCyc < 10));
+        } while ((sum_abs_diff > 5e-2) and (CountCyc < max_iter));
 
         std::string its_name; double em_count;
         
@@ -5426,6 +5541,7 @@ int main(int argc, char* argv[])
     std::vector<std::mutex> GeneMutexes(BroCOLIGenefile.size());
 
     unGTF GTF_full = get_gtf_annotation(gtffile_name);
+    // unGTF GTF_full = get_gtf_annotation_simple(gtffile_name);
     GTFsj GTF_Splice = get_SJs_SE(GTF_full.GTF_transcript);
     std::vector<std::size_t> Group_idx = sort_indexes_e(BroCOLIfile.group_reads_number);
     std::cout << "*** File processing completed! ***\n";
