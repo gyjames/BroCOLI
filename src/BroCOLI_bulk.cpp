@@ -4167,8 +4167,8 @@ OutputInformation Write_Detection_Transcript2gtf(std::ofstream& Updated_Files, s
                 FinalAnnotations.Transcript_Annotations[itsname].second = Disinform.Index2Count[aaa];
                 nameya = Disinform.Index2hashname[aaa];
                 std::array<int,2> exonBE = groupreadcoverage[nameya];
-                BE[0] = itssj.front()[0];
-                BE[1] = itssj.back()[1];
+                BE[0] = exonBE[0];
+                BE[1] = exonBE[1];
 
                 TempGene.clear();
                 if (groupallgene.size() != 0) {
@@ -4330,8 +4330,8 @@ OutputInformation Write_Detection_Transcript2gtf_MultiFiles(std::ofstream& Updat
                 FinalAnnotations.Transcript_Annotations[itsname].second = Disinform.Index2Count[aaa];
                 nameya = Disinform.Index2hashname[aaa];
                 std::array<int,2> exonBE = groupreadcoverage[nameya];
-                BE[0] = itssj.front()[0];
-                BE[1] = itssj.back()[1];
+                BE[0] = exonBE[0];
+                BE[1] = exonBE[1];
                 
                 for (int i = 0; i < FileNumber; i++) {
                     auto is1 = filesolvent.File_HighConClusters[std::to_string(i)].find(nameya);
