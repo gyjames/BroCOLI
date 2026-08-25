@@ -35,6 +35,12 @@ std::mutex geneCountMutex;
 std::mutex traceMutex;
 std::mutex bigMutex;
 
+std::atomic<long long> TotalSingleExonReads{0};
+std::atomic<long long> TotalFSMReads{0};
+std::atomic<long long> TotalISMReads{0};
+std::atomic<long long> TotalHighConfidenceReads{0};
+std::atomic<long long> TotalLowConfidenceReads{0};
+
 struct Split_Result{
     std::string read_name;
     std::vector<std::string> tokens;
@@ -1525,7 +1531,7 @@ void processChunk(const std::string& one_sam_file_path, const std::streampos& st
     }
     samfile.close();
     ReadInform.close();
-    std::cerr << "^-^ Thread: " << file_i << " has completed processing! ^-^" << std::endl;
+    std::cerr << "^-^ file " << file_i << " has completed processing! ^-^" << std::endl;
 }
 
 
@@ -2288,6 +2294,8 @@ GroupInformation knowGroupInformation(std::streampos& startpos, std::streampos& 
             groupinformation.GroupSjs[Sj.first] = Sj.second[1];
         }
     }
+
+    TotalSingleExonReads += group_information.GroupSingleExon.size();
 
     return groupinformation;
 }
@@ -3576,6 +3584,19 @@ SpliceChainClass generate_splice_chain_class(
     SCC.ClusterCoverage = get_every_cluster_begin_end(groupCluster, groupreadcoverage);
     FsmIsmOthers = get_FSM_and_others(groupCluster, groupannotations, AnnoCoverage, groupreadcoverage, groupreadsjs, groupreadfiles, traceFilePath); //readTraceMutex;
     Others2HighLow = get_HighLow_clusters(FsmIsmOthers.Others, groupreadsjs, groupreadsigns, Sj_Support_Number);  
+
+    for (const auto& eachFSM:FsmIsmOthers.FSM) {
+        TotalFSMReads += eachFSM.second.second.size();
+    }
+    for (const auto& eachISM:FsmIsmOthers.ISM) {
+        TotalISMReads += eachISM.second.size();
+    }
+    for (const auto& eachHigh:Others2HighLow.HighConClusters) {
+        TotalHighConfidenceReads += eachHigh.second.size();
+    }
+    for (const auto& eachLow:Others2HighLow.LowConClusters) {
+        TotalLowConfidenceReads += eachLow.second.size();
+    }
 
     get_filtered_FSM(Others2HighLow.LowConClusters, groupannotations, FsmIsmOthers.FSM, groupreadsjs, groupreadfiles, traceFilePath); //readTraceMutex;     
 
@@ -6049,6 +6070,14 @@ int main(int argc, char* argv[])
     rewrite_quantification_file_bulk(outputFileVec[2], 0, sam_file_vec);
     rewrite_quantification_file_bulk(outputFileVec[1], 1, sam_file_vec);
     std::cout << "BroCOLI has successfully concluded.\n";
+    std::cout << "-----------------------------------------------------\n";
+    std::cout << "Summary: \n";
+    std::cout << "Single exon reads:     " << TotalSingleExonReads.load() << std::endl;
+    std::cout << "FSM reads:             " << TotalFSMReads.load() << std::endl;
+    std::cout << "ISM reads:             " << TotalISMReads.load() << std::endl;
+    std::cout << "High Confidence reads: " << TotalSingleExonReads.load() << std::endl;
+    std::cout << "Low Confidence reads:  " << TotalSingleExonReads.load() << std::endl;
+    std::cout << "-----------------------------------------------------\n";
     return 0;
 }
 
