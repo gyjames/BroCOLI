@@ -2362,7 +2362,7 @@ GroupInformation knowGroupInformation(std::streampos& startpos,
         }
     }
 
-    TotalSingleExonReads += group_information.GroupSingleExon.size();
+    TotalSingleExonReads += groupinformation.GroupSingleExon.size();
 
     return groupinformation;
 }
