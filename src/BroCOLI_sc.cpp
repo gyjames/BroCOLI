@@ -5634,8 +5634,11 @@ int main(int argc, char* argv[])
     std::cout << "BroCOLI has successfully concluded.\n";
     std::cout << "-----------------------------------------------------\n";
     std::cout << "Summary: \n";
-    std::cout << "Total single exon reads: " << TotalSingleExonReads.load() << std::endl;
-    
+    std::cout << "Single exon reads:     " << TotalSingleExonReads.load() << std::endl;
+    std::cout << "FSM reads:             " << TotalFSMReads.load() << std::endl;
+    std::cout << "ISM reads:             " << TotalISMReads.load() << std::endl;
+    std::cout << "High Confidence reads: " << TotalHighConfidenceReads.load() << std::endl;
+    std::cout << "Low Confidence reads:  " << TotalLowConfidenceReads.load() << std::endl;
     std::cout << "-----------------------------------------------------\n";
     return 0;
 }
