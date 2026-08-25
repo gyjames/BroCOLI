@@ -6075,8 +6075,8 @@ int main(int argc, char* argv[])
     std::cout << "Single exon reads:     " << TotalSingleExonReads.load() << std::endl;
     std::cout << "FSM reads:             " << TotalFSMReads.load() << std::endl;
     std::cout << "ISM reads:             " << TotalISMReads.load() << std::endl;
-    std::cout << "High Confidence reads: " << TotalSingleExonReads.load() << std::endl;
-    std::cout << "Low Confidence reads:  " << TotalSingleExonReads.load() << std::endl;
+    std::cout << "High Confidence reads: " << TotalHighConfidenceReads.load() << std::endl;
+    std::cout << "Low Confidence reads:  " << TotalLowConfidenceReads.load() << std::endl;
     std::cout << "-----------------------------------------------------\n";
     return 0;
 }
