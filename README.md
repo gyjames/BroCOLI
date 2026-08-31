@@ -35,7 +35,7 @@ A typical single-cell/spatial data run is `prebrocoli` → aligner (e.g. minimap
 
 | Dependency | Notes |
 | :--- | :--- |
-| **C++17 compiler** | g++ 7 or later |
+| **C++17 compiler** | g++ 17 or later |
 | **htslib** | BAM/CRAM parsing, located via `pkg-config` |
 | **WFA2-lib** | gap-affine alignment, C++ bindings (`bindings/cpp/WFAligner.hpp`) |
 | **edlib** | vendored — drop `edlib.h` and `edlib.cpp` into `third_party/edlib/` |
