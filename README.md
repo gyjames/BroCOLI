@@ -108,7 +108,7 @@ minimap2 -ax splice -uf ... reference.fa demux/preBroCOLI_matched.fastq | samtoo
 
 ## 🔥Outputs
 
-`prebrocoli` writes everything under `--outdir`; nothing goes to stdout, so no shell redirection is needed.
+`prebrocoli` writes everything under `--outdir`; nothing goes to std::out, so no shell redirection is needed.
 
 | File | Contents |
 | :--- | :--- |
