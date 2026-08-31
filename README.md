@@ -4,7 +4,7 @@
 [![Maintained?](https://img.shields.io/badge/Maintained%3F-Yes-red)](https://github.com/gyjames/BroCOLI/graphs/contributors)
 [![Install](https://img.shields.io/badge/Install-Github-blue)](#installation)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](https://en.cppreference.com/w/cpp/17)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv2-ff6b35.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-ff6b35.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 ## About
 
