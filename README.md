@@ -31,7 +31,7 @@ A typical single-cell/spatial data run is `prebrocoli` → aligner (e.g. minimap
 - [Reference](#reference)
 - [Contact](#contact)
 
-## Requirements
+## 🌏Requirements
 
 | Dependency | Notes |
 | :--- | :--- |
@@ -50,7 +50,7 @@ git clone https://github.com/gyjames/BroCOLI.git
 cd BroCOLI
 ```
 
-### Option A — conda (recommended)
+### 🥦Option A — conda (recommended)
 
 `setup_conda.sh` creates (or updates) the environment, runs the unit tests, and builds both executables in one shot:
 
@@ -94,7 +94,7 @@ minimap2 -ax splice -uf ... reference.fa demux/preBroCOLI_matched.fastq | samtoo
 ```
 
 
-## Supported chemistries
+## 🐋Supported chemistries
 
 `prebrocoli -q <chemistry>`:
 
@@ -106,7 +106,7 @@ minimap2 -ax splice -uf ... reference.fa demux/preBroCOLI_matched.fastq | samtoo
 
 🚧 = recognised on the command line but not yet implemented; the run stops with an explanatory error rather than silently returning zero barcodes.
 
-## Outputs
+## 🔥Outputs
 
 `prebrocoli` writes everything under `--outdir`; nothing goes to stdout, so no shell redirection is needed.
 
@@ -118,7 +118,7 @@ minimap2 -ax splice -uf ... reference.fa demux/preBroCOLI_matched.fastq | samtoo
 | `<prefix>_barcode_counts.tsv` | barcode → read count, sorted by abundance |
 | `<prefix>_summary.txt` | the same summary printed to the terminal |
 
-## Repository layout
+## 👉🏻Repository layout
 
 ```
 BroCOLI/
@@ -138,7 +138,7 @@ BroCOLI/
 
 Please check out the documentation and tutorials at [BroCOLI Documentation](https://weiwei4396.github.io/BroCOLI/).
 
-## Reference
+## 🏆Reference
 
 1. Li H. Minimap2: pairwise alignment for nucleotide sequences[J]. Bioinformatics, 2018, 34(18): 3094-3100. [Minimap2](https://github.com/lh3/minimap2)
 2. Santiago Marco-Sola, Juan Carlos Moure, Miquel Moreto, Antonio Espinosa. "Fast gap-affine pairwise alignment using the wavefront algorithm.". Bioinformatics, 2020. [WFA2](https://github.com/smarco/WFA2-lib)
