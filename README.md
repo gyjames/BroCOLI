@@ -64,8 +64,6 @@ conda activate brocoli
 ./prebrocoli -h
 ```
 
-> `prebrocoli` additionally needs `third_party/edlib/edlib.h` and `third_party/edlib/edlib.cpp`. If they are missing, the script builds `brocoli`, tells you what to copy, and exits cleanly.
-
 ### Option B — make
 
 Inside an environment that already provides the dependencies:
