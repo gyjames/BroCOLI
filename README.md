@@ -78,6 +78,8 @@ Both routes leave the executables in the repository root.
 
 ## 🚀Quick start
 
+Full argument lists, parameter tuning and worked examples live in the [documentation](#documentation).
+
 ```console
 conda activate brocoli
 
@@ -91,7 +93,6 @@ minimap2 -ax splice -uf ... reference.fa demux/preBroCOLI_matched.fastq | samtoo
 ./brocoli -h
 ```
 
-Full argument lists, parameter tuning and worked examples live in the [documentation](#documentation).
 
 ## Supported chemistries
 
@@ -121,10 +122,10 @@ Full argument lists, parameter tuning and worked examples live in the [documenta
 
 ```
 BroCOLI/
-├── src/                  BroCOLI — detection and quantification
+├── src/                  BroCOLI — discovery and quantification
 ├── pre/                  preBroCOLI — barcode and UMI extraction
 ├── tests/                unit tests
-├── third_party/edlib/    place edlib.h and edlib.cpp here
+├── third_party/edlib/    edlib.h and edlib.cpp here
 ├── environment.yml       conda dependencies
 ├── setup_conda.sh        one-shot environment setup and build
 ├── Makefile
@@ -143,7 +144,6 @@ Please check out the documentation and tutorials at [BroCOLI Documentation](http
 2. Santiago Marco-Sola, Juan Carlos Moure, Miquel Moreto, Antonio Espinosa. "Fast gap-affine pairwise alignment using the wavefront algorithm.". Bioinformatics, 2020. [WFA2](https://github.com/smarco/WFA2-lib)
 3. Martin Šošić, Mile Šikić; Edlib: a C/C++ library for fast, exact sequence alignment using edit distance. Bioinformatics 2017 btw753. doi: 1093/bioinformatics/btw753. [Edlib](https://github.com/Martinsos/edlib)
 4. O.Cheng, Flexiplex: a versatile demultiplexer and search tool for omics data, Bioinformatics, Volume 40, Issue 3, 2024. [flexiplex](https://github.com/DavidsonGroup/flexiplex)
-5. [C++11 ThreadPool](https://github.com/progschj/ThreadPool)
 
 ## Contact
 
