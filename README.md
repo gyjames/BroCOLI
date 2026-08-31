@@ -17,6 +17,28 @@ The toolkit ships as **two executables**:
 | **`prebrocoli`** | Cell barcode and UMI extraction from raw long-read FASTQ, for single-cell and spatial libraries |
 | **`brocoli`** | Isoform detection and quantification from aligned long reads — bulk, single-cell and spatial in one binary |
 
+``` mermaid
+%%{init: {'themeVariables': { 'fontSize': '20px' }}}%%
+graph LR
+  classDef input fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:black;
+  classDef process fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:black;
+  classDef result fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:black;
+
+  A[raw fastq.gz]:::input
+  C[matched fastq]:::process
+  B{sorted bam}:::process
+  E[gene &amp; transcript counts]:::result
+
+  A --> |"Bulk: minimap2"| B
+  A --> |"SC / Spatial: prebrocoli"| C
+  C --> |"minimap2"| B
+  B --> |"brocoli"| E
+
+  linkStyle 0 stroke:#ff9800,stroke-width:4px;
+  linkStyle 1,2 stroke:#9c27b0,stroke-width:4px;
+  linkStyle 3 stroke:#2e7d32,stroke-width:4px;
+```
+
 A typical single-cell/spatial data run is `prebrocoli` → aligner (e.g. minimap2) → `brocoli`. Bulk data goes straight to `brocoli`.
 
 ## Table of contents
