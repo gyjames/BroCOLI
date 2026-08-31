@@ -100,7 +100,7 @@ Both routes leave the executables in the repository root.
 
 ## 🚀Quick start
 
-Full argument lists, parameter tuning and worked examples live in the [documentation](#documentation).
+Full argument lists, parameter tuning and worked examples live in the [BroCOLI Documentation](https://weiwei4396.github.io/BroCOLI/).
 
 ```console
 conda activate brocoli
