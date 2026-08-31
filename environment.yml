@@ -1,0 +1,31 @@
+# conda env create -f environment.yml && conda activate brocoli
+name: brocoli
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  # toolchain (cross-platform metapackage; pulls gcc on Linux, clang on macOS)
+  - cxx-compiler >=1.5
+  - make
+  - cmake >=3.16
+  - pkg-config
+
+  # BroCOLI (quantification) needs only htslib
+  - htslib >=1.17
+
+  # preBroCOLI (barcode extraction) needs zlib and WFA2-lib.
+  # The conda package ships the C++ bindings we use:
+  #   include/wfa2lib/bindings/cpp/WFAligner.hpp  +  libwfa2cpp
+  # edlib is vendored under third_party/edlib (two files, MIT).
+  - wfa2-lib >=2.3.5
+
+  # htslib's own dependencies - conda pulls these automatically, listed for clarity
+  - zlib
+  - bzip2
+  - xz
+  - libdeflate
+  - libcurl
+
+  # not required to build, but you will want them alongside
+  - samtools >=1.17
+  - minimap2
