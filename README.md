@@ -22,7 +22,7 @@ A typical single-cell/spatial data run is `prebrocoli` → aligner (e.g. minimap
 ## Table of contents
 
 - [Requirements](#requirements)
-- [Installation](#Installation)
+- [Installation](#🛠️Installation)
 - [Quick start](#quick-start)
 - [Supported chemistries](#supported-chemistries)
 - [Outputs](#outputs)
