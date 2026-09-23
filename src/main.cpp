@@ -313,8 +313,8 @@ int main(int argc, char** argv) {
     TextSink gtfSink(joinPath(opt.outdir, "updated_annotations.gtf"), "");
     TextSink traceSink(joinPath(opt.outdir, "compatible_isoform.tsv"),
                        opt.mode == Mode::SC
-                           ? "read_id\tcategory\tisoform_id\tgene_id\tbarcode\tfile"
-                           : "read_id\tcategory\tisoform_id\tgene_id\tfile");
+                           ? "read_id\tchr\tstrat\tend\tcategory\tisoform_id\tgene_id\tbarcode\tfile"
+                           : "read_id\tchr\tstrat\tend\tcategory\tisoform_id\tgene_id\tfile");
 
     std::vector<std::unique_ptr<TableSink>> txSinks, geneSinks, regionSinks;
     for (int t = 0; t < cols.tables(); ++t) {
