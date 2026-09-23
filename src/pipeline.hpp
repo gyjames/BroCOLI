@@ -456,6 +456,21 @@ inline GroupOutputs processGroup(const GroupData& g, const Annotation& annotatio
         if (f == g.read_file.end()) continue;
         outp.trace += tl.read;
         outp.trace += '\t';
+        outp.trace += g.chrom;
+        outp.trace += '\t';
+        auto intv = g.read_cov.find(tl.read);
+        if (intv != g.read_cov.end()) {
+            outp.trace += std::to_string(intv->second.front());
+            outp.trace += '\t';
+            outp.trace += std::to_string(intv->second.back());
+            outp.trace += '\t';
+
+        } else {
+            outp.trace += '.';
+            outp.trace += '\t';
+            outp.trace += '.';
+            outp.trace += '\t';
+        }
         outp.trace += tl.category;
         outp.trace += '\t';
         outp.trace += tl.isoform;
