@@ -1,16 +1,12 @@
 // preBroCOLI 2.0 - whitelist / barcode loading and k-mer index construction.
 //
-// Behaviour is carried over unchanged from 1.x so that P0 output matches the
-// old binary byte for byte. The differences are in error handling only:
-//   * the magicseq branch used to test file_exists(barcodePathX) three times,
-//     so a missing Y or Z file was reported as "0 known barcodesY" instead of
-//     "file not found";
-//   * unimplemented chemistries used to print a note and carry on with empty
-//     tables, producing zero barcodes and exit status 0. They exit(1) now.
+// MAGIC-seq supports XY (16 bp) and XYZ (24 bp) barcodes. The barcode column
+// must match the selected --type; optional UMIs are in the second column.
 #ifndef PREBROCOLI_WHITELIST_HPP
 #define PREBROCOLI_WHITELIST_HPP
 
 #include <cstdlib>
+#include <cctype>
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
@@ -73,6 +69,34 @@ struct BarcodeUMIindex {
 using WhiteListMap = std::unordered_map<std::string, std::vector<uint32_t>>;
 using BarcodeSet   = std::unordered_set<std::string>;
 
+// Vote over the same 9-mer postings used by the full-candidate search.
+// Each query/posting occurrence contributes one vote. Equal votes use lexical
+// barcode order, so truncation does not depend on unordered_map iteration.
+inline std::vector<std::pair<std::string, int>> rankMagicseqCandidates(
+        const std::vector<std::string>& queries, const BarcodeUMIindex& ix,
+        int topk, size_t& total_candidates) {
+    std::unordered_map<std::string, int> votes;
+    for (const auto& query : queries) {
+        for (size_t p = 0; p + magicseqALLKMER <= query.size(); ++p) {
+            auto it = ix.whiteList_kmer_index.find(query.substr(p, magicseqALLKMER));
+            if (it != ix.whiteList_kmer_index.end())
+                for (const auto& barcode : it->second) ++votes[barcode];
+        }
+    }
+    std::vector<std::pair<std::string, int>> ranked(votes.begin(), votes.end());
+    total_candidates = ranked.size();
+    const auto better = [](const auto& a, const auto& b) {
+        return a.second != b.second ? a.second > b.second : a.first < b.first;
+    };
+    if (topk > 0 && ranked.size() > static_cast<size_t>(topk)) {
+        std::partial_sort(ranked.begin(), ranked.begin() + topk, ranked.end(), better);
+        ranked.resize(static_cast<size_t>(topk));
+    } else {
+        std::sort(ranked.begin(), ranked.end(), better);
+    }
+    return ranked;
+}
+
 // ---------------------------------------------------------------- loading --
 namespace detail {
 
@@ -134,19 +158,50 @@ inline void loadBarcodeColumn(const std::string& path, size_t min_len,
 
 inline void loadMagicseq(const Options& opt, WhiteListMap& wl,
                          BarcodeSet& bcX, BarcodeSet& bcY, BarcodeSet& bcZ) {
+    if (opt.magicseq_segments != 2 && opt.magicseq_segments != 3) {
+        std::cerr << "[preBroCOLI] MAGIC-seq requires a barcode type of 2 or 3\n";
+        std::exit(1);
+    }
     if (fileExists(opt.whitelist)) {
         std::ifstream file(opt.whitelist);
-        std::cout << "[preBroCOLI] [magicseq] barcodes X/Y/Z and UMIs from: "
+        std::cout << "[preBroCOLI] [magicseq] barcodes and UMIs from: "
                   << opt.whitelist << "\n";
         std::string line;
+        const size_t barcode_length = static_cast<size_t>(opt.magicseq_segments * 8);
+        size_t line_number = 0;
+        bool first_data_row = true;
         uint32_t umi_val = 0;
         while (std::getline(file, line)) {
-            if (line.size() < 24) continue;
-            bcX.emplace(line, 0, 8);
-            bcY.emplace(line, 8, 8);
-            bcZ.emplace(line, 16, 8);
-            std::vector<uint32_t>& umi_list = wl[line.substr(0, 24)];
-            if (line.size() > 36 && encode_dna_2bit_n(line.data() + 25, 12, umi_val))
+            ++line_number;
+            std::istringstream row(line);
+            std::string bc, umi;
+            if (!(row >> bc)) continue;
+            if (bc[0] == '#') continue;
+            if (first_data_row) {
+                first_data_row = false;
+                std::string column_name = bc;
+                std::transform(column_name.begin(), column_name.end(), column_name.begin(),
+                               [](unsigned char c) { return std::tolower(c); });
+                // Accept annotations both as "Barcode (16bp)" and "Barcode(16bp)".
+                column_name = column_name.substr(0, column_name.find('('));
+                if (column_name == "barcode" || column_name == "barcodes" ||
+                    column_name == "cellbarcode" || column_name == "cellbarcodes" ||
+                    column_name == "cell_barcode" || column_name == "cell_barcodes" ||
+                    column_name == "cb" || column_name == "bc") continue;
+            }
+            if (bc.size() != barcode_length) {
+                std::cerr << "[preBroCOLI] " << opt.whitelist << ':' << line_number
+                          << ": --type " << opt.magicseq_segments << " requires "
+                          << barcode_length << " bp barcodes in column 1, found "
+                          << bc.size() << " bp\n";
+                std::exit(1);
+            }
+            bcX.emplace(bc, 0, 8);
+            bcY.emplace(bc, 8, 8);
+            if (barcode_length == 24) bcZ.emplace(bc, 16, 8);
+            std::vector<uint32_t>& umi_list = wl[bc];
+            if (row >> umi && umi.size() == 12 &&
+                encode_dna_2bit_n(umi.data(), 12, umi_val))
                 umi_list.push_back(umi_val);
         }
         detail::dedupWhitelistUmis(wl, "[magicseq]");
@@ -155,6 +210,10 @@ inline void loadMagicseq(const Options& opt, WhiteListMap& wl,
 
     std::cout << "[preBroCOLI] no whitelist file (" << opt.whitelist
               << "), falling back to per-position barcode lists\n";
+    if (opt.magicseq_segments == 2) {
+        std::cerr << "[preBroCOLI] --type 2 requires -w <whitelist>\n";
+        std::exit(1);
+    }
     if (opt.barcodeX.empty() || opt.barcodeY.empty() || opt.barcodeZ.empty()) {
         std::cerr << "[preBroCOLI] magicseq needs either -w <whitelist> or all of "
                      "-x/-y/-z\n";
@@ -197,7 +256,7 @@ inline void loadSingleBarcode(const Options& opt, WhiteListMap& wl,
 // ---------------------------------------------------------------- indexes --
 inline void buildMagicseqIndex(const WhiteListMap& wl, const BarcodeSet& bcX,
                                const BarcodeSet& bcY, const BarcodeSet& bcZ,
-                               BarcodeUMIindex& ix) {
+                               BarcodeUMIindex& ix, int magicseq_segments) {
     std::string kmer;
     kmer.resize(magicseqXKMER);
     std::string bc_ext;
@@ -215,7 +274,8 @@ inline void buildMagicseqIndex(const WhiteListMap& wl, const BarcodeSet& bcX,
     }
     for (const auto& bc : bcY) {
         bc_ext.clear();
-        bc_ext.append("A"); bc_ext += bc; bc_ext.append("T");
+        bc_ext.append("A"); bc_ext += bc;
+        if (magicseq_segments == 3) bc_ext.append("T");  // XY has an unknown UMI after Y
         for (size_t p = 0; p + magicseqXKMER <= bc_ext.size(); ++p) {
             std::memcpy(&kmer[0], bc_ext.data() + p, magicseqXKMER);
             ix.barcodeY_kmer_index[kmer].emplace_back(bc);
@@ -282,16 +342,19 @@ inline void buildSingleBarcodeIndex(const WhiteListMap& wl, const BarcodeSet& bc
 // --------------------------------------------------------- search pattern --
 using Pattern = std::vector<std::pair<std::string, std::string>>;
 
-inline Pattern searchPattern(const std::string& mode) {
+inline Pattern searchPattern(const std::string& mode, int magicseq_segments) {
     if (mode == "magicseq") {
-        return {{"primer",   "CTACACGACGCTCTTCCGATCT"},
+        Pattern pattern = {{"primer",   "CTACACGACGCTCTTCCGATCT"},
                 {"BCX",      std::string(8, '?')},
                 {"LinkerXY", "CAGTCATGTCATGAGCTA"},
-                {"BCY",      std::string(8, '?')},
-                {"LinkerYZ", "TGATGCGACACTGATCGA"},
-                {"BCZ",      std::string(8, '?')},
-                {"UMI",      std::string(12, '?')},
-                {"polyT",    "TTTTTTTTTT"}};
+                {"BCY",      std::string(8, '?')}};
+        if (magicseq_segments == 3) {
+            pattern.emplace_back("LinkerYZ", "TGATGCGACACTGATCGA");
+            pattern.emplace_back("BCZ", std::string(8, '?'));
+        }
+        pattern.emplace_back("UMI", std::string(12, '?'));
+        pattern.emplace_back("polyT", "TTTTTTTTTT");
+        return pattern;
     }
     // 10x3v3 and visium
     return {{"primer", "CTACACGACGCTCTTCCGATCT"},
@@ -305,8 +368,10 @@ inline void loadChemistry(const Options& opt, WhiteListMap& wl, BarcodeSet& bcX,
     if (opt.mode == "magicseq") {
         std::cout << "[preBroCOLI] chemistry: MAGIC-seq\n";
         loadMagicseq(opt, wl, bcX, bcY, bcZ);
+        std::cout << "[preBroCOLI] MAGIC-seq layout: "
+                  << (opt.magicseq_segments == 2 ? "XY (16 bp)" : "XYZ (24 bp)") << "\n";
         ix.whiteList_kmer_index.reserve(wl.size());
-        buildMagicseqIndex(wl, bcX, bcY, bcZ, ix);
+        buildMagicseqIndex(wl, bcX, bcY, bcZ, ix, opt.magicseq_segments);
     } else if (opt.mode == "visium") {
         std::cout << "[preBroCOLI] chemistry: Visium\n";
         loadSingleBarcode(opt, wl, bcX, "[visium]");

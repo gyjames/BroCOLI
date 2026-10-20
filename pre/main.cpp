@@ -1,12 +1,14 @@
 // preBroCOLI 2.0 - barcode / UMI extraction from long-read FASTQ.
 //
-// Input  : .fastq or .fastq.gz (or "-" for stdin), auto-detected.
+// Input  : FASTQ/FASTA file, optionally gzip-compressed; no stdin reads.
 // Output : plain files under --outdir. Nothing goes to stdout any more, so
 //          no shell redirection is needed and the log cannot end up mixed
 //          into the data.
 #include <getopt.h>
+#include <unistd.h>
 
 #include <cstdlib>
+#include <climits>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -52,22 +54,31 @@ struct option kLongOpts[] = {
     {"chimeric",       required_argument, nullptr, 'c'},
     {"batch",          required_argument, nullptr, 1001},
     {"keep_unmatched", no_argument,       nullptr, 1002},
+    {"type",           required_argument, nullptr, 1003},
+    {"topk",           required_argument, nullptr, 1004},
+    {"no-corr",        no_argument,       nullptr, 1005},
     {"help",           no_argument,       nullptr, 'h'},
     {nullptr, 0, nullptr, 0}};
 
 void printUsage(const char* prog) {
     std::cout
         << "Usage: " << prog << " -q <chemistry> -w <whitelist> -o <outdir> <reads.fastq[.gz]>\n\n"
-        << "  reads may be .fastq, .fastq.gz, .fasta, .fasta.gz, or - for stdin.\n\n"
+        << "  reads must be a .fastq, .fastq.gz, .fasta, or .fasta.gz file.\n\n"
         << "Required:\n"
         << "  -q, --chemistry     magicseq | visium        (10x3v3 not implemented yet)\n"
         << "  -o, --outdir        output directory\n\n"
         << "Barcode source (one of):\n"
-        << "  -w, --whitelist     whitelist file: barcode in column 1, optional UMI after it\n"
+        << "  -w, --whitelist     barcode in column 1, optional UMI in column 2\n"
+        << "                     magicseq: length must agree with --type\n"
         << "  -x, --barcodeX      barcode list (magicseq: first segment)\n"
         << "  -y, --barcodeY      magicseq only, second segment\n"
         << "  -z, --barcodeZ      magicseq only, third segment\n\n"
         << "Common:\n"
+        << "      --type          magicseq barcode segments: 2 (XY) | 3 (XYZ)\n"
+        << "                      if omitted, prompt on a terminal (Enter: 2);\n"
+        << "                      non-interactive/background default: 2\n"
+        << "      --topk          magicseq WFA candidate limit (default: 32; 0: all)\n"
+        << "      --no-corr       disable magicseq corrected-barcode fast path\n"
         << "  -I, --reads         reads file (alternative to the positional argument)\n"
         << "  -n, --prefix        output filename prefix          (default: preBroCOLI)\n"
         << "  -p, --thread        worker threads                  (default: 1)\n"
@@ -93,6 +104,42 @@ bool boolArg(const std::string& v) {
     if (s == "false" || s == "f" || s == "0") return false;
     std::cerr << "[preBroCOLI] expected true/false, got '" << v << "'\n";
     std::exit(1);
+}
+
+bool selectMagicseqType(Options& opt) {
+    if (opt.mode != "magicseq") {
+        if (opt.magicseq_segments != 0) {
+            std::cerr << "[preBroCOLI] --type is only supported for magicseq\n";
+            return false;
+        }
+        return true;
+    }
+    if (opt.magicseq_segments != 0) return true;
+    if (!isatty(STDIN_FILENO) || !isatty(STDERR_FILENO)) {
+        opt.magicseq_segments = 2;
+        std::cout << "[preBroCOLI] non-interactive run: --type not specified, "
+                     "using 2 (XY)\n";
+        return true;
+    }
+    for (;;) {
+        std::cerr << "Select the number of MAGIC-seq barcode segments:\n"
+                     "  2: BCX + BCY (16 bp, default)\n"
+                     "  3: BCX + BCY + BCZ (24 bp)\n"
+                     "Enter 2 or 3 [2]: " << std::flush;
+        std::string answer;
+        if (!std::getline(std::cin, answer)) {
+            std::cerr << "[preBroCOLI] no selection received; specify --type 2 or --type 3\n";
+            return false;
+        }
+        const auto first = answer.find_first_not_of(" \t\r");
+        answer = first == std::string::npos ? "" :
+                 answer.substr(first, answer.find_last_not_of(" \t\r") - first + 1);
+        if (answer.empty() || answer == "2" || answer == "3") {
+            opt.magicseq_segments = answer == "3" ? 3 : 2;
+            return true;
+        }
+        std::cerr << "[preBroCOLI] please enter 2 or 3\n";
+    }
 }
 
 // ------------------------------------------------------------------ output --
@@ -236,6 +283,17 @@ std::string summaryText(const Options& opt, double wall) {
     s += "-----------------------------------------------------\n";
     s += "Summary:\n";
     s += fmt("Chemistry:             %s\n", opt.mode.c_str());
+    if (opt.mode == "magicseq") {
+        s += fmt("Barcode segments:      %d (%s)\n", opt.magicseq_segments,
+                 opt.magicseq_segments == 2 ? "XY" : "XYZ");
+        s += fmt("Corrected fast path:   %s\n", opt.magicseq_scoring.corr ? "on" : "off");
+        s += fmt("WFA candidate limit:   %d (0 = all)\n", opt.magicseq_scoring.topk);
+        s += "-- MAGIC-seq whitelist scoring (per search attempt) --\n";
+        s += fmt("corr fast-path hits:   %lld\n", g_stats.magicseq_corr_hits.load());
+        s += fmt("WFA searches:          %lld\n", g_stats.magicseq_scored_searches.load());
+        s += fmt("candidates before K:   %lld\n", g_stats.magicseq_candidates_total.load());
+        s += fmt("WFA calls:             %lld\n", g_stats.magicseq_wfa_calls.load());
+    }
     s += fmt("Reads in:              %lld\n", in);
     s += fmt("Reads with barcode:    %lld (%.2f%%)\n",
              g_stats.reads_assigned.load(), pct(g_stats.reads_assigned.load()));
@@ -294,23 +352,48 @@ int main(int argc, char** argv) {
             case 'c': opt.mark_chimeric = boolArg(optarg); break;
             case 1001: opt.batch = std::atoi(optarg); break;
             case 1002: opt.keep_unmatched = true; break;
+            case 1003:
+                if (std::string(optarg) != "2" && std::string(optarg) != "3") {
+                    std::cerr << "[preBroCOLI] --type must be 2 or 3\n";
+                    return EXIT_FAILURE;
+                }
+                opt.magicseq_segments = optarg[0] - '0';
+                break;
+            case 1004: {
+                char* end = nullptr;
+                errno = 0;
+                const long value = std::strtol(optarg, &end, 10);
+                if (end == optarg || *end != '\0' || errno == ERANGE ||
+                    value < 0 || value > INT_MAX) {
+                    std::cerr << "[preBroCOLI] --topk must be a non-negative integer\n";
+                    return EXIT_FAILURE;
+                }
+                opt.magicseq_scoring.topk = static_cast<int>(value);
+                break;
+            }
+            case 1005: opt.magicseq_scoring.corr = false; break;
             case 'h': printUsage(argv[0]); return 0;
             default: printUsage(argv[0]); return EXIT_FAILURE;
         }
     }
 
-    // getopt already knows where the options stopped. 1.x counted "params += 2"
-    // by hand, which broke as soon as an argument was attached to its flag
-    // (-p16) and silently made the tool wait on stdin.
-    if (opt.reads.empty()) {
-        if (optind < argc) opt.reads = argv[optind];
-        else opt.reads = "-";
-    }
+    if (opt.reads.empty() && optind < argc) opt.reads = argv[optind];
     if (opt.mode.empty()) {
         std::cerr << "[preBroCOLI] -q/--chemistry is required\n";
         printUsage(argv[0]);
         return EXIT_FAILURE;
     }
+    if (opt.reads.empty() || opt.reads == "-") {
+        std::cerr << "[preBroCOLI] a reads file is required; stdin reads are not supported\n";
+        return EXIT_FAILURE;
+    }
+    struct stat reads_stat;
+    if (stat(opt.reads.c_str(), &reads_stat) != 0 ||
+        !S_ISREG(reads_stat.st_mode) || access(opt.reads.c_str(), R_OK) != 0) {
+        std::cerr << "[preBroCOLI] reads must be a readable regular file: " << opt.reads << "\n";
+        return EXIT_FAILURE;
+    }
+    if (!selectMagicseqType(opt)) return EXIT_FAILURE;
     if (opt.threads < 1) opt.threads = 1;
     if (opt.batch < 1) opt.batch = 1;
     if (!opt.flank_editd_set) opt.flank_editd = (opt.mode == "magicseq") ? 20 : 8;
@@ -321,7 +404,7 @@ int main(int argc, char** argv) {
 
     std::cout << "*****\n"
               << "Chemistry:       " << opt.mode << '\n'
-              << "Reads:           " << (opt.reads == "-" ? "<stdin>" : opt.reads) << '\n'
+              << "Reads:           " << opt.reads << '\n'
               << "Whitelist:       " << (opt.whitelist.empty() ? "-" : opt.whitelist) << '\n'
               << "Output dir:      " << opt.outdir << '\n'
               << "Prefix:          " << opt.prefix << '\n'
@@ -336,7 +419,7 @@ int main(int argc, char** argv) {
     BarcodeUMIindex buindex;
     loadChemistry(opt, whitelist, bcX, bcY, bcZ, buindex);
 
-    const Pattern pattern = searchPattern(opt.mode);
+    const Pattern pattern = searchPattern(opt.mode, opt.magicseq_segments);
     for (const auto& p : pattern) std::cout << "  " << p.first << ": " << p.second << "\n";
 
     if (opt.split_by_barcode && bcX.size() > 50) {
@@ -419,7 +502,8 @@ int main(int argc, char** argv) {
                                              std::ref(batches[t]), std::cref(bcX),
                                              std::cref(bcY), std::cref(bcZ),
                                              opt.flank_editd, std::cref(pattern),
-                                             std::cref(whitelist), std::ref(buindex));
+                                             std::cref(whitelist), std::ref(buindex),
+                                             opt.magicseq_segments, std::cref(opt.magicseq_scoring));
             for (size_t t = 0; t < batches.size(); ++t)
                 if (!batches[t].empty()) threads[t].join();
 

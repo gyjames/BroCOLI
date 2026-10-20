@@ -19,11 +19,18 @@ namespace prebrocoli {
 inline const char* kVersion = "2.0.0";
 
 // --------------------------------------------------------------- options ---
+struct MagicseqScoring {
+    bool corr = true;             // accept a corrected combination present in whitelist
+    int topk = 32;                // WFA candidates; 0 keeps all candidates
+};
+
 struct Options {
     std::string mode;              // magicseq | 10x3v3 | visium
-    std::string reads;             // "-" for stdin; .fastq or .fastq.gz
+    std::string reads;             // FASTQ/FASTA file, optionally gzip-compressed
     std::string whitelist;
     std::string barcodeX, barcodeY, barcodeZ;
+    int magicseq_segments = 0;     // --type or interactive choice: 2 (XY) | 3 (XYZ)
+    MagicseqScoring magicseq_scoring;
 
     std::string outdir = ".";
     std::string prefix = "preBroCOLI";
@@ -83,6 +90,12 @@ struct Stats {
     std::atomic<long long> umi_exact{0};           // was erfen
     std::atomic<long long> umi_corrected{0};       // was bitwei
     std::atomic<long long> umi_uncorrected{0};     // was chushi
+
+    // MAGIC-seq scoring, counted per search attempt (not per input read).
+    std::atomic<long long> magicseq_corr_hits{0};
+    std::atomic<long long> magicseq_scored_searches{0};
+    std::atomic<long long> magicseq_candidates_total{0}; // before top-K
+    std::atomic<long long> magicseq_wfa_calls{0};
 
     // CPU time, microseconds, summed over threads
     std::atomic<long long> t_adapter_us{0};        // was total_First
