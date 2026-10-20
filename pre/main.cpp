@@ -288,11 +288,7 @@ std::string summaryText(const Options& opt, double wall) {
                  opt.magicseq_segments == 2 ? "XY" : "XYZ");
         s += fmt("Corrected fast path:   %s\n", opt.magicseq_scoring.corr ? "on" : "off");
         s += fmt("WFA candidate limit:   %d (0 = all)\n", opt.magicseq_scoring.topk);
-        s += "-- MAGIC-seq whitelist scoring (per search attempt) --\n";
-        s += fmt("corr fast-path hits:   %lld\n", g_stats.magicseq_corr_hits.load());
-        s += fmt("WFA searches:          %lld\n", g_stats.magicseq_scored_searches.load());
-        s += fmt("candidates before K:   %lld\n", g_stats.magicseq_candidates_total.load());
-        s += fmt("WFA calls:             %lld\n", g_stats.magicseq_wfa_calls.load());
+        s += "-----------------------------------------------------\n";
     }
     s += fmt("Reads in:              %lld\n", in);
     s += fmt("Reads with barcode:    %lld (%.2f%%)\n",
@@ -302,7 +298,8 @@ std::string summaryText(const Options& opt, double wall) {
              opt.keep_unmatched ? "" : "  [discarded, use --keep_unmatched to save]");
     s += fmt("Reads chimeric:        %lld\n", g_stats.reads_chimeric.load());
     s += fmt("Reads >1 barcode:      %lld\n", g_stats.reads_multi_barcode.load());
-    s += fmt("Records written:       %lld\n", g_stats.reads_written.load());
+    s += fmt("Records written:       %lld\n", g_stats.reads_written.load()); 
+    s += "-----------------------------------------------------\n";
     s += "-- where barcode searches failed (per search attempt, both strands) --\n";
     s += fmt("read_too_short:        %lld\n", g_stats.read_too_short.load());
     s += fmt("adapter_not_found:     %lld\n", g_stats.adapter_not_found.load());
