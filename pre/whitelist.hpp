@@ -74,7 +74,7 @@ using BarcodeSet   = std::unordered_set<std::string>;
 // barcode order, so truncation does not depend on unordered_map iteration.
 inline std::vector<std::pair<std::string, int>> rankMagicseqCandidates(
         const std::vector<std::string>& queries, const BarcodeUMIindex& ix,
-        int topk, size_t& total_candidates) {
+        int topk) {
     std::unordered_map<std::string, int> votes;
     for (const auto& query : queries) {
         for (size_t p = 0; p + magicseqALLKMER <= query.size(); ++p) {
@@ -84,7 +84,6 @@ inline std::vector<std::pair<std::string, int>> rankMagicseqCandidates(
         }
     }
     std::vector<std::pair<std::string, int>> ranked(votes.begin(), votes.end());
-    total_candidates = ranked.size();
     const auto better = [](const auto& a, const auto& b) {
         return a.second != b.second ? a.second > b.second : a.first < b.first;
     };

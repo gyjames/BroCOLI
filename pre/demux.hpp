@@ -198,7 +198,7 @@ inline Barcode get_magicseq_barcode(std::string& seq, const BarcodeSet* known_bc
         subpattern_lengths.push_back(pair.second.length());
     }
     if (seq.length() < search_string.length()) {
-        bump(g_stats.read_too_short);
+        barcode.failure = SearchFailure::TooShort;
         return barcode;
     }
     t1 = Clock::now();
@@ -208,7 +208,7 @@ inline Barcode get_magicseq_barcode(std::string& seq, const BarcodeSet* known_bc
     t2 = Clock::now();
     bump(g_stats.t_adapter_us, std::chrono::duration_cast<microsec>(t2 - t1).count());
     if (result.status != EDLIB_STATUS_OK || result.numLocations == 0) {
-        bump(g_stats.adapter_not_found);
+        barcode.failure = SearchFailure::AdapterNotFound;
         edlibFreeAlignResult(result);
         return barcode;
     }
@@ -220,7 +220,7 @@ inline Barcode get_magicseq_barcode(std::string& seq, const BarcodeSet* known_bc
                                        subpattern_lengths, read_to_subpatterns);
     edlibFreeAlignResult(result);
     if (!mapped) {
-        bump(g_stats.adapter_not_found);
+        barcode.failure = SearchFailure::AdapterNotFound;
         return barcode;
     }
     const bool has_z = magicseq_segments == 3;
@@ -299,7 +299,7 @@ inline Barcode get_magicseq_barcode(std::string& seq, const BarcodeSet* known_bc
     t2 = Clock::now();
     bump(g_stats.t_bc1_us, std::chrono::duration_cast<microsec>(t2 - t1).count());
     if (BarcodeVecStrX.empty() && BarcodeX.empty()) {
-        bump(g_stats.bc1_unresolved);
+        barcode.failure = SearchFailure::Bc1Unresolved;
         return barcode;
     }
     if (BarcodeVecStrX.size() == 1) exact_bcx = BarcodeVecStrX[0];
@@ -372,7 +372,7 @@ inline Barcode get_magicseq_barcode(std::string& seq, const BarcodeSet* known_bc
     t2 = Clock::now();
     bump(g_stats.t_bc2_us, std::chrono::duration_cast<microsec>(t2 - t1).count());
     if (BarcodeVecStrY.empty() && BarcodeY.empty()) {
-        bump(g_stats.bc2_unresolved);
+        barcode.failure = SearchFailure::Bc2Unresolved;
         return barcode;
     }
     if (BarcodeVecStrY.size() == 1) exact_bcy = BarcodeVecStrY[0];
@@ -418,7 +418,7 @@ inline Barcode get_magicseq_barcode(std::string& seq, const BarcodeSet* known_bc
         t2 = Clock::now();
         bump(g_stats.t_bc3_us, std::chrono::duration_cast<microsec>(t2 - t1).count());
         if (BarcodeVecStrZ.empty() && BarcodeZ.empty()) {
-            bump(g_stats.bc3_unresolved);
+            barcode.failure = SearchFailure::Bc3Unresolved;
             return barcode;
         }
         if (BarcodeVecStrZ.size() == 1) exact_bcz = BarcodeVecStrZ[0];
@@ -435,18 +435,12 @@ inline Barcode get_magicseq_barcode(std::string& seq, const BarcodeSet* known_bc
         if (scoring.corr && WHITELIST->find(corrected) != WHITELIST->end()) {
             // corr: accept the segment-corrected combination, without WFA.
             Final_Barcode = corrected;
-            bump(g_stats.magicseq_corr_hits);
         } else {
             std::vector<std::string> queries;
             for (const auto& x : BarcodeVecStrX)
                 for (const auto& y : BarcodeVecStrY)
                     for (const auto& z : BarcodeVecStrZ) queries.push_back(x + y + z);
-            size_t total_candidates = 0;
-            const auto candidates = rankMagicseqCandidates(queries, buindex, scoring.topk,
-                                                           total_candidates);
-            bump(g_stats.magicseq_scored_searches);
-            bump(g_stats.magicseq_candidates_total, static_cast<long long>(total_candidates));
-            bump(g_stats.magicseq_wfa_calls, static_cast<long long>(candidates.size()));
+            const auto candidates = rankMagicseqCandidates(queries, buindex, scoring.topk);
             wfa::WFAlignerGapAffine aligner(4, 6, 2, wfa::WFAligner::Alignment, wfa::WFAligner::MemoryHigh);
             const int left_bound = std::max(read_to_subpatterns[bcx_index - 1], 0);
             const int max_length = read_to_subpatterns[umi_index] - read_to_subpatterns[bcx_index - 1];
@@ -494,7 +488,7 @@ inline Barcode get_magicseq_barcode(std::string& seq, const BarcodeSet* known_bc
         barcode.unambiguous = true;
         barcode.barcode = Final_Barcode;
     } else {
-        bump(g_stats.whitelist_no_match);
+        barcode.failure = SearchFailure::WhitelistNoMatch;
     }
     return barcode;
 }
@@ -519,7 +513,7 @@ inline Barcode get_visium_barcode(std::string& seq, const BarcodeSet* known_bcX,
         subpattern_lengths.push_back(pair.second.length());
     }
     if (seq.length() < search_string.length()) {
-        bump(g_stats.read_too_short);
+        barcode.failure = SearchFailure::TooShort;
         return barcode;
     }
     t1 = Clock::now();
@@ -528,7 +522,7 @@ inline Barcode get_visium_barcode(std::string& seq, const BarcodeSet* known_bcX,
     t2 = Clock::now();
     bump(g_stats.t_adapter_us, std::chrono::duration_cast<microsec>(t2 - t1).count());
     if (result.status != EDLIB_STATUS_OK || result.numLocations == 0) {
-        bump(g_stats.adapter_not_found);
+        barcode.failure = SearchFailure::AdapterNotFound;
         edlibFreeAlignResult(result);
         return barcode;
     }
@@ -539,7 +533,7 @@ inline Barcode get_visium_barcode(std::string& seq, const BarcodeSet* known_bcX,
     const bool mapped = mapSubpatterns(result, barcode.flank_start, subpattern_lengths, read_to_subpatterns);
     edlibFreeAlignResult(result);
     if (!mapped) {
-        bump(g_stats.adapter_not_found);
+        barcode.failure = SearchFailure::AdapterNotFound;
         return barcode;
     }
     const int bc_index = 1, umi_index = 2, edit_X = 5;
@@ -575,7 +569,7 @@ inline Barcode get_visium_barcode(std::string& seq, const BarcodeSet* known_bcX,
     const int max_length = static_cast<int>(search_pattern[bc_index].second.length()) + 2 * 5;
     const std::string barcode_seq = seq.substr(static_cast<size_t>(left_bound), static_cast<size_t>(max_length));
     if (BarcodeVecStrX.empty() && BarcodeX.empty()) {
-        bump(g_stats.bc1_unresolved);
+        barcode.failure = SearchFailure::Bc1Unresolved;
         unsigned int editDistance, endDistance;
         for (auto itr = known_bcX->begin(); itr != known_bcX->end(); ++itr) {
             search_string = *itr;
@@ -616,7 +610,8 @@ inline Barcode get_visium_barcode(std::string& seq, const BarcodeSet* known_bcX,
         barcode.unambiguous = true;
         barcode.barcode = Final_Barcode;
     } else {
-        bump(g_stats.whitelist_no_match);
+        barcode.failure = BarcodeVecStrX.empty() ? SearchFailure::Bc1Unresolved
+                                                : SearchFailure::WhitelistNoMatch;
     }
     return barcode;
 }
@@ -628,21 +623,22 @@ inline std::vector<Barcode> big_barcode_search(const std::string& mode,
                                                const Pattern& search_pattern,
                                                const WhiteListMap& whitelist,
                                                BarcodeUMIindex& buindex, int magicseq_segments,
-                                               const MagicseqScoring& scoring) {
+                                               const MagicseqScoring& scoring,
+                                               SearchFailure* failure = nullptr) {
     std::vector<Barcode> return_vec;
     Barcode result;
     if (mode == "magicseq") {
         result = get_magicseq_barcode(sequence, &bcX, &bcY, &bcZ, max_flank_editd,
                                       search_pattern, &whitelist, buindex, magicseq_segments, scoring);
         if (result.editd <= 2 && result.unambiguous) return_vec.push_back(result);
-        if (!result.unambiguous) bump(g_stats.search_no_call);
-        if (result.editd > 2) bump(g_stats.barcode_editd_high);
     } else if (mode == "visium") {
         result = get_visium_barcode(sequence, &bcX, max_flank_editd, search_pattern, &whitelist, buindex);
         if (result.editd <= 2 && result.unambiguous) return_vec.push_back(result);
-        if (!result.unambiguous) bump(g_stats.search_no_call);
-        if (result.editd > 2) bump(g_stats.barcode_editd_high);
     }
+    if (failure)
+        *failure = !return_vec.empty() ? SearchFailure::None :
+                   (result.unambiguous && result.editd > 2 ? SearchFailure::BarcodeEditdHigh
+                                                          : result.failure);
     if (!return_vec.empty()) {
         std::string masked = sequence;
         bool masked_anything = false;
@@ -672,16 +668,18 @@ inline void search_reads(const std::string& mode, std::vector<SearchResult>& rea
                          BarcodeUMIindex& buindex, int magicseq_segments,
                          const MagicseqScoring& scoring) {
     for (auto& r : reads) {
+        SearchFailure forward = SearchFailure::None, reverse = SearchFailure::None;
         r.vec_bc_for = big_barcode_search(mode, r.line, bcX, bcY, bcZ,
                                           flank_edit_distance, search_pattern, whitelist, buindex,
-                                          magicseq_segments, scoring);
+                                          magicseq_segments, scoring, &forward);
         r.rev_line = r.line;
         reverse_complement(r.rev_line);
         r.vec_bc_rev = big_barcode_search(mode, r.rev_line, bcX, bcY, bcZ,
                                           flank_edit_distance, search_pattern, whitelist, buindex,
-                                          magicseq_segments, scoring);
+                                          magicseq_segments, scoring, &reverse);
         r.count = static_cast<int>(r.vec_bc_for.size() + r.vec_bc_rev.size());
         r.chimeric = !r.vec_bc_for.empty() && !r.vec_bc_rev.empty();
+        recordReadFailure(g_stats, forward, reverse, r.count > 0);
     }
 }
 

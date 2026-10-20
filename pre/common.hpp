@@ -52,19 +52,11 @@ struct Options {
 // i.e. a data race: the numbers printed were too low and differed between
 // runs. They are atomics now.
 //
-// Two levels are counted, and they are NOT the same thing:
-//
-//   * read level    - one count per input read (reads_in, reads_assigned,
-//                     reads_unmatched, reads_chimeric, reads_written).
-//                     reads_in == reads_assigned + reads_unmatched always;
-//                     this invariant is asserted in the tests.
-//   * attempt level - one count per barcode search. Each read is searched on
-//                     both strands and searches recurse after a hit, so these
-//                     do not sum to reads_in. They tell you *where* searches
-//                     die, not how many reads died.
-//
-// The t_* timers are summed across threads, so they are CPU time, not wall
-// time: 32 threads for 10 minutes prints as ~19000 s. Labelled as such.
+// Read outcomes and failure reasons are counted once per input read. A hit
+// on either strand makes the read successful. If both strands fail, use the
+// reason from the strand that reached the furthest stage. reads_written counts
+// output records; UMI counters retain their reference-resolution semantics.
+// Timers are accumulated per-thread stage durations, not process CPU time.
 struct Stats {
     // read level
     std::atomic<long long> reads_in{0};
@@ -74,16 +66,15 @@ struct Stats {
     std::atomic<long long> reads_multi_barcode{0};
     std::atomic<long long> reads_written{0};
 
-    // attempt level - why a barcode search failed
+    // Read-level failure reasons, mutually exclusive except search_no_call,
+    // which is the total number of reads with neither strand accepted.
     std::atomic<long long> read_too_short{0};      // was noLen
     std::atomic<long long> adapter_not_found{0};   // was noAlign
     std::atomic<long long> bc1_unresolved{0};      // was noX
     std::atomic<long long> bc2_unresolved{0};      // was noY
     std::atomic<long long> bc3_unresolved{0};      // was noZ
     std::atomic<long long> whitelist_no_match{0};  // was noFinal
-    std::atomic<long long> search_no_call{0};      // was Ambiguous - counts every search
-                                                   // that produced no confident barcode,
-                                                   // not only genuine ties
+    std::atomic<long long> search_no_call{0};
     std::atomic<long long> barcode_editd_high{0};  // was total6 (editd > 2)
 
     // UMI resolution
@@ -91,13 +82,7 @@ struct Stats {
     std::atomic<long long> umi_corrected{0};       // was bitwei
     std::atomic<long long> umi_uncorrected{0};     // was chushi
 
-    // MAGIC-seq scoring, counted per search attempt (not per input read).
-    std::atomic<long long> magicseq_corr_hits{0};
-    std::atomic<long long> magicseq_scored_searches{0};
-    std::atomic<long long> magicseq_candidates_total{0}; // before top-K
-    std::atomic<long long> magicseq_wfa_calls{0};
-
-    // CPU time, microseconds, summed over threads
+    // Stage duration, microseconds, summed over threads
     std::atomic<long long> t_adapter_us{0};        // was total_First
     std::atomic<long long> t_bc1_us{0};            // was total_BarcodeX
     std::atomic<long long> t_bc2_us{0};            // was total_BarcodeY
@@ -112,6 +97,28 @@ inline void bump(std::atomic<long long>& c, long long by = 1) {
 }
 
 // ------------------------------------------------------------ small types --
+// Ordered by progress through the extraction pipeline.
+enum class SearchFailure {
+    None, TooShort, AdapterNotFound, Bc1Unresolved, Bc2Unresolved,
+    Bc3Unresolved, WhitelistNoMatch, BarcodeEditdHigh
+};
+
+inline void recordReadFailure(Stats& stats, SearchFailure forward,
+                              SearchFailure reverse, bool assigned) {
+    if (assigned) return;
+    bump(stats.search_no_call);
+    switch (std::max(forward, reverse)) {
+        case SearchFailure::TooShort: bump(stats.read_too_short); break;
+        case SearchFailure::AdapterNotFound: bump(stats.adapter_not_found); break;
+        case SearchFailure::Bc1Unresolved: bump(stats.bc1_unresolved); break;
+        case SearchFailure::Bc2Unresolved: bump(stats.bc2_unresolved); break;
+        case SearchFailure::Bc3Unresolved: bump(stats.bc3_unresolved); break;
+        case SearchFailure::WhitelistNoMatch: bump(stats.whitelist_no_match); break;
+        case SearchFailure::BarcodeEditdHigh: bump(stats.barcode_editd_high); break;
+        case SearchFailure::None: break;
+    }
+}
+
 struct Barcode {
     std::string barcode;
     std::string umi;
@@ -120,6 +127,7 @@ struct Barcode {
     int flank_start = 0;
     int flank_end = 0;
     bool unambiguous = false;
+    SearchFailure failure = SearchFailure::None;
 };
 
 struct SearchResult {
