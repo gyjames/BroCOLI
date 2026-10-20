@@ -1,7 +1,7 @@
 // preBroCOLI 2.0 - sequence input / output.
 //
-// Input:  SeqReader reads plain FASTQ/FASTA, gzip-compressed FASTQ/FASTA and
-//         stdin through one interface. zlib's gzread passes uncompressed data
+// Input:  SeqReader reads plain or gzip-compressed FASTQ/FASTA files.
+//         zlib's gzread passes uncompressed data
 //         through transparently, so a single code path covers .fastq and
 //         .fastq.gz and no filename sniffing is needed.
 //
@@ -26,15 +26,11 @@ struct SeqRecord {
 
 class SeqReader {
 public:
-    // path may be "-" or empty for stdin.
     explicit SeqReader(const std::string& path) {
-        if (path.empty() || path == "-") {
-            fp_ = gzdopen(fileno(stdin), "rb");
-            name_ = "<stdin>";
-        } else {
-            fp_ = gzopen(path.c_str(), "rb");
-            name_ = path;
-        }
+        if (path.empty() || path == "-")
+            throw std::runtime_error("a reads file is required; stdin reads are not supported");
+        name_ = path;
+        fp_ = gzopen(path.c_str(), "rb");
         if (!fp_) throw std::runtime_error("cannot open " + name_);
         gzbuffer(fp_, 1u << 20);          // 1 MB inflate buffer
         buf_.resize(1u << 20);
