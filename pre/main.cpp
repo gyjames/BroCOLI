@@ -288,7 +288,6 @@ std::string summaryText(const Options& opt, double wall) {
                  opt.magicseq_segments == 2 ? "XY" : "XYZ");
         s += fmt("Corrected fast path:   %s\n", opt.magicseq_scoring.corr ? "on" : "off");
         s += fmt("WFA candidate limit:   %d (0 = all)\n", opt.magicseq_scoring.topk);
-        s += "-----------------------------------------------------\n";
     }
     s += fmt("Reads in:              %lld\n", in);
     s += fmt("Reads with barcode:    %lld (%.2f%%)\n",
@@ -298,9 +297,8 @@ std::string summaryText(const Options& opt, double wall) {
              opt.keep_unmatched ? "" : "  [discarded, use --keep_unmatched to save]");
     s += fmt("Reads chimeric:        %lld\n", g_stats.reads_chimeric.load());
     s += fmt("Reads >1 barcode:      %lld\n", g_stats.reads_multi_barcode.load());
-    s += fmt("Records written:       %lld\n", g_stats.reads_written.load()); 
-    s += "-----------------------------------------------------\n";
-    s += "-- where barcode searches failed (per search attempt, both strands) --\n";
+    s += fmt("Records written:       %lld\n", g_stats.reads_written.load());
+    s += "-- failure reasons (per input read; both strands failed; furthest stage) --\n";
     s += fmt("read_too_short:        %lld\n", g_stats.read_too_short.load());
     s += fmt("adapter_not_found:     %lld\n", g_stats.adapter_not_found.load());
     s += fmt("bc1_unresolved:        %lld\n", g_stats.bc1_unresolved.load());
@@ -313,7 +311,7 @@ std::string summaryText(const Options& opt, double wall) {
     s += fmt("umi_exact:             %lld\n", g_stats.umi_exact.load());
     s += fmt("umi_corrected:         %lld\n", g_stats.umi_corrected.load());
     s += fmt("umi_uncorrected:       %lld\n", g_stats.umi_uncorrected.load());
-    s += "-- CPU time (summed over threads, not wall time) --\n";
+    s += "-- stage durations (summed over threads, not wall time) --\n";
     s += fmt("adapter search:        %.1f s\n", g_stats.t_adapter_us.load() / 1e6);
     s += fmt("barcode 1:             %.1f s\n", g_stats.t_bc1_us.load() / 1e6);
     s += fmt("barcode 2:             %.1f s\n", g_stats.t_bc2_us.load() / 1e6);
