@@ -1,4 +1,8 @@
+<div align="center">
+  
 # BroCOLI : Bron-Kerbosch calibrator of Long-read Isoform
+
+</div>
 
 <div align="center">
   
