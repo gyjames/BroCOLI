@@ -122,15 +122,79 @@ minimap2 -ax splice -uf ... reference.fa demux/preBroCOLI_matched.fastq | samtoo
 
 | Chemistry | Library | Status |
 | :--- | :--- | :---: |
-| `magicseq` | three-segment barcode (BC8 + BC8 + BC8) + UMI | ✅ |
+| `magicseq` | two- or three-segment barcode (BC8 + BC8 [+ BC8]) + UMI12 | ✅ |
 | `visium` | 10x Visium spatial, BC16 + UMI12 | ✅ |
 | `10x3v3` | 10x Genomics 3′ v3 | 🚧 |
 
 🚧 = recognised on the command line but not yet implemented; the run stops with an explanatory error rather than silently returning zero barcodes.
 
+For MAGIC-seq, select the template with `--type 2` or `--type 3`.
+The barcode in whitelist column 1 must have the corresponding length:
+
+- **16 bp (XY):** primer → BCX8 → LinkerXY → BCY8 → UMI12 → polyT10.
+- **24 bp (XYZ):** primer → BCX8 → LinkerXY → BCY8 → LinkerYZ → BCZ8 → UMI12 → polyT10.
+
+Each whitelist file must use one barcode length. Put an optional known 12 bp UMI
+in column 2, separated by tabs or spaces; repeat the barcode on separate rows for
+multiple UMIs. Empty lines and `#` comments are ignored. An optional first header
+is recognised when column 1 is `barcode`, `barcodes`, `CellBarcode`,
+`CellBarcodes`, `cell_barcode`, `cell_barcodes`, `CB`, or `BC` (case-insensitive).
+Parenthesised annotations such as `Barcode (16bp)` or `Barcode(16bp)` are also
+accepted. Other malformed rows still cause an error with a line number.
+Barcode-only files are supported and retain the extracted UMI
+without reference-based correction. A barcode length conflicting with `--type`
+stops the run with the offending file and line number.
+
+If `--type` is omitted and stdin and stderr are both terminals, an English prompt
+on stderr asks for `2` or `3`; pressing Enter selects `2`. Redirecting stdout
+alone keeps the prompt visible. With stdin or stderr redirected, runs (including `nohup`)
+default to `2` and log that choice; use `--type 3` for XYZ. Reads must be supplied
+as a file, either positionally or with `-I`; stdin reads (`-`) are not supported.
+Existing XYZ scripts must add `--type 3`, including when using `-x/-y/-z`.
+The selected type is checked against the whitelist; read structure is not
+automatically detected or validated.
+
+MAGIC-seq defaults to **corr+top32** for both XY and XYZ:
+
+1. Combine the segment calls after the existing per-segment correction. If the
+   corrected combination occurs in the complete whitelist, accept it without WFA.
+2. Otherwise, recall candidates using the existing 9-mer index and rank them by
+   posting votes across the segment-candidate combinations. Score at most 32
+   candidates with WFA. Equal votes and equal WFA scores use lexical barcode order.
+
+`--topk N` changes the WFA limit (`0` retains all candidates). `--no-corr`
+disables the corrected-combination fast path. Thus `--no-corr --topk 32` uses
+top32 only, and `--no-corr --topk 0` uses full-candidate WFA with deterministic
+tie-breaking. This comparison mode need not be byte-identical to older builds
+that resolved ties by hash iteration order. These options affect MAGIC-seq only.
+The summary reports corr hits, WFA searches, candidates before truncation, and
+actual WFA calls, all counted per search attempt rather than per input read.
+
+This is an accuracy/speed tradeoff: especially with a full combinatorial
+whitelist, corrected combinations can match an incorrect barcode. The speed
+and accuracy figures from external experiments have not been reproduced here.
+UMI extraction/correction and trimming keep their existing logic, although a
+changed barcode assignment can change which UMI reference set is used.
+
+```console
+./prebrocoli -q magicseq --type 2 -w whitelist.txt -p 16 -o demux/ reads.fastq.gz
+
+# Three-segment (XYZ) library with a 24 bp whitelist.
+./prebrocoli -q magicseq --type 3 -w whitelist_xyz.txt -p 16 -o demux_xyz/ reads.fastq.gz
+
+# Background run: defaults to XY; add --type 3 for XYZ.
+nohup ./prebrocoli -q magicseq -w whitelist.txt -p 16 -o demux/ reads.fastq.gz > run.log 2>&1 &
+```
+
+`make test` includes whitelist/layout tests without WFA2. `make test-pre` runs
+the full XY/XYZ extraction regressions and requires edlib and WFA2.
+After building, `python3 tests/test_pre_cli.py ./prebrocoli` checks interactive
+selection, the background default, whitelist conflicts, and file-only input on Linux.
+
 ## 🔥Outputs
 
-`prebrocoli` writes everything under `--outdir`; nothing goes to std::out, so no shell redirection is needed.
+`prebrocoli` writes data files under `--outdir`. Logs go to stdout/stderr;
+interactive prompts go to stderr. Shell redirection is only needed to save logs.
 
 | File | Contents |
 | :--- | :--- |
