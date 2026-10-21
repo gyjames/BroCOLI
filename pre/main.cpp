@@ -57,6 +57,7 @@ struct option kLongOpts[] = {
     {"type",           required_argument, nullptr, 1003},
     {"topk",           required_argument, nullptr, 1004},
     {"no-corr",        no_argument,       nullptr, 1005},
+    {"final-ed",       required_argument, nullptr, 1006},
     {"help",           no_argument,       nullptr, 'h'},
     {nullptr, 0, nullptr, 0}};
 
@@ -77,8 +78,11 @@ void printUsage(const char* prog) {
         << "      --type          magicseq barcode segments: 2 (XY) | 3 (XYZ)\n"
         << "                      if omitted, prompt on a terminal (Enter: 2);\n"
         << "                      non-interactive/background default: 2\n"
-        << "      --topk          magicseq WFA candidate limit (default: 32; 0: all)\n"
+        << "      --topk          magicseq WFA candidate limit (default: 8; 0: all)\n"
         << "      --no-corr       disable magicseq corrected-barcode fast path\n"
+        << "      --final-ed      magicseq max final barcode edit distance (inclusive)\n"
+        << "                      default: XY (--type 2) = 1; XYZ (--type 3) = 4\n"
+        << "                      non-negative integer; 0 requires final distance 0\n"
         << "  -I, --reads         reads file (alternative to the positional argument)\n"
         << "  -n, --prefix        output filename prefix          (default: preBroCOLI)\n"
         << "  -p, --thread        worker threads                  (default: 1)\n"
@@ -288,6 +292,8 @@ std::string summaryText(const Options& opt, double wall) {
                  opt.magicseq_segments == 2 ? "XY" : "XYZ");
         s += fmt("Corrected fast path:   %s\n", opt.magicseq_scoring.corr ? "on" : "off");
         s += fmt("WFA candidate limit:   %d (0 = all)\n", opt.magicseq_scoring.topk);
+        s += fmt("Final barcode max ED:  %d\n",
+                 opt.magicseq_scoring.finalEditLimit(opt.magicseq_segments));
     }
     s += fmt("Reads in:              %lld\n", in);
     s += fmt("Reads with barcode:    %lld (%.2f%%)\n",
@@ -305,7 +311,6 @@ std::string summaryText(const Options& opt, double wall) {
     s += fmt("bc2_unresolved:        %lld\n", g_stats.bc2_unresolved.load());
     s += fmt("bc3_unresolved:        %lld\n", g_stats.bc3_unresolved.load());
     s += fmt("whitelist_no_match:    %lld\n", g_stats.whitelist_no_match.load());
-    s += fmt("no_confident_call:     %lld\n", g_stats.search_no_call.load());
     s += fmt("barcode_editd_high:    %lld\n", g_stats.barcode_editd_high.load());
     s += "-- UMI --\n";
     s += fmt("umi_exact:             %lld\n", g_stats.umi_exact.load());
@@ -354,16 +359,19 @@ int main(int argc, char** argv) {
                 }
                 opt.magicseq_segments = optarg[0] - '0';
                 break;
-            case 1004: {
+            case 1004:
+            case 1006: {
                 char* end = nullptr;
                 errno = 0;
                 const long value = std::strtol(optarg, &end, 10);
                 if (end == optarg || *end != '\0' || errno == ERANGE ||
                     value < 0 || value > INT_MAX) {
-                    std::cerr << "[preBroCOLI] --topk must be a non-negative integer\n";
+                    std::cerr << "[preBroCOLI] " << (c == 1004 ? "--topk" : "--final-ed")
+                              << " must be a non-negative integer\n";
                     return EXIT_FAILURE;
                 }
-                opt.magicseq_scoring.topk = static_cast<int>(value);
+                if (c == 1004) opt.magicseq_scoring.topk = static_cast<int>(value);
+                else opt.magicseq_scoring.final_ed = static_cast<int>(value);
                 break;
             }
             case 1005: opt.magicseq_scoring.corr = false; break;
@@ -389,6 +397,10 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
     if (!selectMagicseqType(opt)) return EXIT_FAILURE;
+    if (opt.mode != "magicseq" && opt.magicseq_scoring.final_ed >= 0) {
+        std::cerr << "[preBroCOLI] --final-ed is only supported for magicseq\n";
+        return EXIT_FAILURE;
+    }
     if (opt.threads < 1) opt.threads = 1;
     if (opt.batch < 1) opt.batch = 1;
     if (!opt.flank_editd_set) opt.flank_editd = (opt.mode == "magicseq") ? 20 : 8;
