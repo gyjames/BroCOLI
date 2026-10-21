@@ -481,7 +481,11 @@ inline Barcode get_magicseq_barcode(std::string& seq, const BarcodeSet* known_bc
     if (!Final_Barcode.empty()) {
         search_string = exact_bcx + exact_bcy + exact_bcz;
         unsigned int endDistance;
-        barcode.editd = static_cast<int>(edit_distance(Final_Barcode, search_string, endDistance, 8));
+        // Compute the final distance without the old cutoff of 8: --final-ed
+        // may be larger, and an early-exit sentinel must not become a valid ED.
+        const int distance_bound = static_cast<int>(std::max(Final_Barcode.size(), search_string.size()));
+        barcode.editd = static_cast<int>(edit_distance(Final_Barcode, search_string,
+                                                       endDistance, distance_bound));
         barcode.umi = get_umi(seq, search_pattern, read_to_subpatterns, umi_index,
                               buindex.barcode_UMI_kmer_index.at(Final_Barcode));
         // FIXME(P1): final-score ties are not checked for ambiguity.
@@ -627,17 +631,19 @@ inline std::vector<Barcode> big_barcode_search(const std::string& mode,
                                                SearchFailure* failure = nullptr) {
     std::vector<Barcode> return_vec;
     Barcode result;
+    const int final_max_editd = mode == "magicseq"
+        ? scoring.finalEditLimit(magicseq_segments) : 2;
     if (mode == "magicseq") {
         result = get_magicseq_barcode(sequence, &bcX, &bcY, &bcZ, max_flank_editd,
                                       search_pattern, &whitelist, buindex, magicseq_segments, scoring);
-        if (result.editd <= 2 && result.unambiguous) return_vec.push_back(result);
+        if (result.editd <= final_max_editd && result.unambiguous) return_vec.push_back(result);
     } else if (mode == "visium") {
         result = get_visium_barcode(sequence, &bcX, max_flank_editd, search_pattern, &whitelist, buindex);
-        if (result.editd <= 2 && result.unambiguous) return_vec.push_back(result);
+        if (result.editd <= final_max_editd && result.unambiguous) return_vec.push_back(result);
     }
     if (failure)
         *failure = !return_vec.empty() ? SearchFailure::None :
-                   (result.unambiguous && result.editd > 2 ? SearchFailure::BarcodeEditdHigh
+                   (result.unambiguous && result.editd > final_max_editd ? SearchFailure::BarcodeEditdHigh
                                                           : result.failure);
     if (!return_vec.empty()) {
         std::string masked = sequence;

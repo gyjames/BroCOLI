@@ -21,7 +21,12 @@ inline const char* kVersion = "2.0.0";
 // --------------------------------------------------------------- options ---
 struct MagicseqScoring {
     bool corr = true;             // accept a corrected combination present in whitelist
-    int topk = 32;                // WFA candidates; 0 keeps all candidates
+    int topk = 8;                // WFA candidates; 0 keeps all candidates
+    int final_ed = -1;            // unset: XY=1, XYZ=3; otherwise --final-ed
+
+    int finalEditLimit(int segments) const {
+        return final_ed >= 0 ? final_ed : (segments == 3 ? 4 : 2);
+    }
 };
 
 struct Options {
@@ -75,7 +80,7 @@ struct Stats {
     std::atomic<long long> bc3_unresolved{0};      // was noZ
     std::atomic<long long> whitelist_no_match{0};  // was noFinal
     std::atomic<long long> search_no_call{0};
-    std::atomic<long long> barcode_editd_high{0};  // was total6 (editd > 2)
+    std::atomic<long long> barcode_editd_high{0};  // final barcode distance exceeds selected limit
 
     // UMI resolution
     std::atomic<long long> umi_exact{0};           // was erfen
