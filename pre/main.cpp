@@ -86,7 +86,8 @@ void printUsage(const char* prog) {
         << "  -I, --reads         reads file (alternative to the positional argument)\n"
         << "  -n, --prefix        output filename prefix          (default: preBroCOLI)\n"
         << "  -p, --thread        worker threads                  (default: 1)\n"
-        << "  -f, --flank_editd   max adapter edit distance       (magicseq 20, visium 8)\n"
+        << "  -f, --flank_editd   max adapter edit distance\n"
+        << "                      default: magicseq type 2 = 15; type 3 = 20; visium = 8\n"
         << "  -i, --trim          true/false: rewrite read ID and trim adapters (default: true)\n"
         << "  -s, --split         true/false: one file per barcode           (default: false)\n"
         << "  -c, --chimeric      true/false: mark chimeric reads with _C    (default: false)\n"
@@ -403,7 +404,10 @@ int main(int argc, char** argv) {
     }
     if (opt.threads < 1) opt.threads = 1;
     if (opt.batch < 1) opt.batch = 1;
-    if (!opt.flank_editd_set) opt.flank_editd = (opt.mode == "magicseq") ? 20 : 8;
+    if (!opt.flank_editd_set) {
+        opt.flank_editd = opt.mode == "magicseq"
+            ? (opt.magicseq_segments == 3 ? 20 : 15) : 8;
+    }
 
     LogRedirect log_redirect;
 

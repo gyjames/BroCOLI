@@ -1,0 +1,59 @@
+# Make / setup_conda.sh executables
+/brocoli
+/prebrocoli
+/brocoli_test
+/prebrocoli_seqio_test
+
+# CMake build directories and generated files (keep the source Makefile)
+/build/
+/build-*/
+/cmake-build-*/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/CTestTestfile.cmake
+/Testing/
+/install_manifest.txt
+/compile_commands.json
+/_deps/
+
+# Compiled objects and libraries
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.gcda
+*.gcno
+*.gcov
+
+# Local datasets and run outputs; keep small fixtures under tests/ or example/
+/data/
+/results/
+/output/
+/demux/
+/demux_xyz/
+# Large example alignment removed from Git history
+/example/example_SIRV.sam
+
+# Runtime logs and temporary files
+*.log
+nohup.out
+*.tmp
+*.swp
+*.swo
+*~
+
+# Python caches (for helper / test scripts)
+__pycache__/
+*.pyc
+/.venv/
+
+# Local IDE settings and OS metadata
+/.vscode/
+/.idea/
+.DS_Store
+Thumbs.db

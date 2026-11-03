@@ -42,7 +42,7 @@ struct Options {
 
     int  threads          = 1;
     int  batch            = 2000;   // reads per thread per batch
-    int  flank_editd      = 20;     // overridden per chemistry unless given
+    int  flank_editd      = 15;     // overridden per chemistry/type unless given
     bool flank_editd_set  = false;
 
     bool trim_barcodes    = true;   // -i
